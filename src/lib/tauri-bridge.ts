@@ -22,3 +22,45 @@ export async function onTranscript(
 ): Promise<UnlistenFn> {
   return listen<TranscriptEvent>('transcript', (e) => callback(e.payload));
 }
+
+// --- Plan 2 additions ---
+
+export interface MeetingDraft {
+  name: string;
+  project_ref?: string;
+  purpose?: string;
+  participants?: string;
+}
+
+export interface MaterialProgressEvent {
+  file_path: string;
+  status: 'started' | 'completed' | 'failed';
+  material_id?: string;
+  error?: string;
+}
+
+export async function createMeeting(draft: MeetingDraft): Promise<string> {
+  return await invoke<string>('create_meeting', {
+    name: draft.name,
+    projectRef: draft.project_ref,
+    purpose: draft.purpose,
+    participants: draft.participants,
+  });
+}
+
+export async function ingestMaterial(meetingId: string, filePath: string): Promise<string> {
+  return await invoke<string>('ingest_material', {
+    meetingId,
+    filePath,
+  });
+}
+
+export async function startMeetingWithId(meetingId: string): Promise<void> {
+  await invoke('start_meeting', { meetingId });
+}
+
+export async function onMaterialProgress(
+  callback: (evt: MaterialProgressEvent) => void
+): Promise<UnlistenFn> {
+  return listen<MaterialProgressEvent>('material_progress', (e) => callback(e.payload));
+}
