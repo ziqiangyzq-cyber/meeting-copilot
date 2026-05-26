@@ -9,12 +9,12 @@ use tokio::sync::mpsc;
 // that route there. Override via MINIMAX_BASE_URL env if needed.
 const URL_DOMESTIC: &str = "https://api.minimaxi.com/v1/text/chatcompletion_v2";
 const URL_INTL: &str = "https://api.minimax.io/v1/text/chatcompletion_v2";
-// MiniMax-M2 is the model accessible under the user's current token plan
-// (older abab6.5-chat / MiniMax-Text-01 returned 2061 "plan not support"
-// during T6 dev check, 2026-05-26). M2 is a reasoning model — it emits
-// `reasoning_content` chunks first, then real `content` chunks. We only
-// forward `delta.content`, so reasoning text is silently filtered out.
-const DEFAULT_MODEL: &str = "MiniMax-M2";
+// MiniMax-M2.7-highspeed: reasoning model variant accessible under the
+// current token plan (abab6.5-chat / M1 / M2 base return 2061 "plan not
+// support", verified 2026-05-26). Highspeed variant has lower latency than
+// stock M2 while keeping reasoning quality. Emits `reasoning_content` first
+// then `content` — we only forward `delta.content`, reasoning is filtered.
+const DEFAULT_MODEL: &str = "MiniMax-M2.7-highspeed";
 // Reasoning model needs headroom for the hidden chain-of-thought plus the
 // visible answer. 1024 leaves enough budget for a short Chinese answer.
 const DEFAULT_MAX_TOKENS: u32 = 1024;
