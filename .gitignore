@@ -27,3 +27,7 @@ recordings/
 
 # Tauri builds
 src-tauri/target/
+logs
+*.log
+dist-ssr
+*.local
