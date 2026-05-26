@@ -2,13 +2,30 @@ import Foundation
 
 logInfo("AudioHelper started")
 
-func handleCommand(_ cmd: Command) {
+let converter = PCMConverter()
+var systemCapture: SystemAudioCapture?
+
+if #available(macOS 13.0, *) {
+    systemCapture = SystemAudioCapture(converter: converter)
+} else {
+    logError("macOS 13.0+ required for ScreenCaptureKit")
+    exit(1)
+}
+
+func handleCommand(_ cmd: Command) async {
     switch cmd.cmd {
     case "start":
-        logInfo("start command received (capture not implemented yet)")
-        // Task 4-5 implement actual capture
+        do {
+            try await systemCapture?.start()
+        } catch {
+            logError("start failed: \(error)")
+        }
     case "stop":
-        logInfo("stop command received")
+        do {
+            try await systemCapture?.stop()
+        } catch {
+            logError("stop failed: \(error)")
+        }
         exit(0)
     case "ping":
         logInfo("pong")
@@ -17,17 +34,24 @@ func handleCommand(_ cmd: Command) {
     }
 }
 
-while let line = readLine() {
-    guard let data = line.data(using: .utf8) else {
-        logError("non-utf8 input")
-        continue
+// Main loop: read stdin commands, dispatch as async tasks
+let semaphore = DispatchSemaphore(value: 0)
+
+DispatchQueue.global().async {
+    while let line = readLine() {
+        guard let data = line.data(using: .utf8) else {
+            logError("non-utf8 input")
+            continue
+        }
+        do {
+            let cmd = try JSONDecoder().decode(Command.self, from: data)
+            Task { await handleCommand(cmd) }
+        } catch {
+            logError("decode failed: \(error)")
+        }
     }
-    do {
-        let cmd = try JSONDecoder().decode(Command.self, from: data)
-        handleCommand(cmd)
-    } catch {
-        logError("decode failed: \(error)")
-    }
+    semaphore.signal()
 }
 
+semaphore.wait()
 logInfo("AudioHelper exiting (stdin closed)")
