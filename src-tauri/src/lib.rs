@@ -5,6 +5,7 @@ mod config;
 mod db;
 mod error;
 mod orchestrator;
+mod rag;
 
 use commands::{start_meeting, stop_meeting, AppState};
 use orchestrator::Orchestrator;
