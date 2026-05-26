@@ -3,6 +3,8 @@ import {
   MeetingDraft,
   createMeeting,
   startMeetingWithId,
+  showFloating,
+  hideFloating,
 } from '../lib/tauri-bridge';
 import { MeetingForm } from '../components/MeetingForm';
 import { FileDropzone } from '../components/FileDropzone';
@@ -33,6 +35,7 @@ export function Setup() {
     setError(null);
     try {
       await startMeetingWithId(meetingId);
+      await showFloating();
       setStage('started');
     } catch (e) {
       setError(String(e));
@@ -102,10 +105,22 @@ export function Setup() {
       {stage === 'started' && (
         <section className="text-center py-12">
           <div className="text-4xl mb-4">🎙️</div>
-          <p className="text-lg font-semibold">会议已开始</p>
+          <p className="text-lg font-semibold">会议进行中</p>
           <p className="text-sm text-gray-500 mt-2">
-            (T10 会加浮窗,现在请打开 Console 查看 transcript 事件)
+            浮窗已在桌面右下角。在浮窗里点"结束"可停止会议。
           </p>
+          <button
+            onClick={async () => {
+              await hideFloating();
+              // For testing: reset stage back to form for another meeting
+              setStage('form');
+              setMeetingId(null);
+              setMaterialsReady(false);
+            }}
+            className="mt-6 px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
+          >
+            新建另一个会议
+          </button>
         </section>
       )}
     </div>

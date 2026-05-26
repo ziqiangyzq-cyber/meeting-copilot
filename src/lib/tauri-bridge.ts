@@ -64,3 +64,11 @@ export async function onMaterialProgress(
 ): Promise<UnlistenFn> {
   return listen<MaterialProgressEvent>('material_progress', (e) => callback(e.payload));
 }
+
+export async function showFloating(): Promise<void> {
+  await invoke('show_floating');
+}
+
+export async function hideFloating(): Promise<void> {
+  await invoke('hide_floating');
+}

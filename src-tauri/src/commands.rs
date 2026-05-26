@@ -119,3 +119,34 @@ pub async fn trigger_suggestion(
         .map_err(|e| e.to_string())?;
     Ok(())
 }
+
+#[tauri::command]
+pub async fn show_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    use tauri::Manager;
+    let win = app
+        .get_webview_window("floating")
+        .ok_or_else(|| "floating window not found".to_string())?;
+
+    // Position to bottom-right of primary monitor before showing
+    if let Some(monitor) = win.current_monitor().map_err(|e| e.to_string())? {
+        let size = win.outer_size().map_err(|e| e.to_string())?;
+        let mon = monitor.size();
+        let scale = monitor.scale_factor();
+        let margin = (20.0 * scale) as i32;
+        let x = mon.width as i32 - size.width as i32 - margin;
+        let y = mon.height as i32 - size.height as i32 - margin * 4; // higher margin from bottom (avoid dock)
+        win.set_position(tauri::PhysicalPosition { x, y }).ok();
+    }
+
+    win.show().map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn hide_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    use tauri::Manager;
+    if let Some(win) = app.get_webview_window("floating") {
+        win.hide().map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}

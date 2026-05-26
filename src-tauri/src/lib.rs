@@ -10,7 +10,8 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, ingest_material, start_meeting, stop_meeting, trigger_suggestion, AppState,
+    create_meeting, hide_floating, ingest_material, show_floating, start_meeting, stop_meeting,
+    trigger_suggestion, AppState,
 };
 use config::Config;
 use db::Db;
@@ -58,7 +59,9 @@ pub fn run() {
             ingest_material,
             start_meeting,
             stop_meeting,
-            trigger_suggestion
+            trigger_suggestion,
+            show_floating,
+            hide_floating
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
