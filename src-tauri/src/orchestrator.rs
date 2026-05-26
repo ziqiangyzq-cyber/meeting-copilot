@@ -2,40 +2,79 @@ use crate::asr::aliyun_paraformer::{AliyunParaformer, TranscriptEvent};
 use crate::asr::{ASRClient, AudioSource as AsrSource};
 use crate::audio_pump::{frame::AudioSource as PumpSource, HelperProc};
 use crate::config::Config;
+use crate::db::Db;
 use crate::error::{AppError, Result};
+use crate::llm::{minimax::MiniMaxClient, LLMClient};
+use crate::rag::embedding::EmbeddingClient;
+use crate::suggestion::{MeetingMeta, SuggestionEngine, TriggerType};
+use rusqlite::params;
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex};
 use tokio::task::JoinHandle;
 
+const AUTO_SUGGESTION_INTERVAL_SECS: u64 = 20;
+
 pub struct Orchestrator {
     inner: Arc<Mutex<OrchestratorState>>,
+    db: Arc<Db>,
+    embed: Arc<EmbeddingClient>,
+    llm: Arc<dyn LLMClient>,
 }
 
 struct OrchestratorState {
     helper: Option<HelperProc>,
     forward_handle: Option<JoinHandle<()>>,
     transcript_handle: Option<JoinHandle<()>>,
+    suggestion_engine: Option<Arc<SuggestionEngine>>,
+    suggestion_timer: Option<JoinHandle<()>>,
+    current_meeting_id: Option<String>,
 }
 
 impl Orchestrator {
-    pub fn new() -> Self {
+    pub fn new(config: &Config, db: Arc<Db>) -> Self {
+        let embed = Arc::new(EmbeddingClient::new(config.aliyun_api_key.clone()));
+        let llm: Arc<dyn LLMClient> = Arc::new(MiniMaxClient::new(config.minimax_api_key.clone()));
         Self {
             inner: Arc::new(Mutex::new(OrchestratorState {
                 helper: None,
                 forward_handle: None,
                 transcript_handle: None,
+                suggestion_engine: None,
+                suggestion_timer: None,
+                current_meeting_id: None,
             })),
+            db,
+            embed,
+            llm,
         }
     }
 
-    pub async fn start(&self, config: &Config, app: tauri::AppHandle) -> Result<()> {
+    pub fn db(&self) -> Arc<Db> {
+        self.db.clone()
+    }
+
+    pub fn embed(&self) -> Arc<EmbeddingClient> {
+        self.embed.clone()
+    }
+
+    /// Start a meeting: spawn AudioHelper, connect ASR, init SuggestionEngine, start auto timer.
+    pub async fn start(
+        &self,
+        config: &Config,
+        app: tauri::AppHandle,
+        meeting_id: String,
+    ) -> Result<()> {
         let mut state = self.inner.lock().await;
 
         if state.helper.is_some() {
             return Err(AppError::AudioHelper("already running".into()));
         }
+
+        // Load meeting meta for SuggestionEngine prompts
+        let meta = load_meeting_meta(&self.db, &meeting_id)?;
 
         // 1. Spawn AudioHelper
         let bin_path = locate_helper_binary()?;
@@ -44,15 +83,20 @@ impl Orchestrator {
 
         // 2. Connect ASR
         let (transcript_tx, mut transcript_rx) = mpsc::channel::<TranscriptEvent>(64);
-        let asr = AliyunParaformer::connect(
-            config.aliyun_api_key.clone(),
-            None,
-            transcript_tx,
-        )
-        .await?;
+        let asr = AliyunParaformer::connect(config.aliyun_api_key.clone(), None, transcript_tx)
+            .await?;
         let asr = Arc::new(Mutex::new(asr));
 
-        // 3. Pump frames from helper → ASR
+        // 3. Build SuggestionEngine
+        let engine = Arc::new(SuggestionEngine::new(
+            self.db.clone(),
+            self.embed.clone(),
+            self.llm.clone(),
+            meeting_id.clone(),
+            meta,
+        ));
+
+        // 4. Pump frames from helper → ASR
         let frames_rx = helper
             .take_frames()
             .ok_or_else(|| AppError::AudioHelper("frames already taken".into()))?;
@@ -76,9 +120,14 @@ impl Orchestrator {
             tracing::info!("frame forwarder ended");
         });
 
-        // 4. Emit transcripts to frontend
+        // 5. Transcript loop: emit to UI + persist final events + push to SuggestionEngine
+        let engine_for_transcript = engine.clone();
+        let db_for_transcript = self.db.clone();
+        let meeting_id_for_transcript = meeting_id.clone();
+        let app_for_transcript = app.clone();
         let transcript_loop = tokio::spawn(async move {
             while let Some(evt) = transcript_rx.recv().await {
+                // Frontend emit
                 let payload = serde_json::json!({
                     "source": match evt.source {
                         AsrSource::System => "system",
@@ -89,21 +138,50 @@ impl Orchestrator {
                     "begin_ms": evt.begin_ms,
                     "end_ms": evt.end_ms,
                 });
-                if let Err(e) = app.emit("transcript", payload) {
+                if let Err(e) = app_for_transcript.emit("transcript", payload) {
                     tracing::warn!("emit transcript failed: {e}");
                 }
+
+                // Persist final transcripts
+                if evt.is_final {
+                    let conn = db_for_transcript.conn();
+                    let speaker = match evt.source {
+                        AsrSource::System => "system",
+                        AsrSource::Mic => "mic",
+                    };
+                    if let Err(e) = conn.execute(
+                        "INSERT INTO transcripts (meeting_id, speaker, text, start_ms, end_ms, is_final) VALUES (?, ?, ?, ?, ?, 1)",
+                        params![
+                            meeting_id_for_transcript,
+                            speaker,
+                            evt.text,
+                            evt.begin_ms as i64,
+                            evt.end_ms as i64,
+                        ],
+                    ) {
+                        tracing::warn!("persist transcript failed: {e}");
+                    }
+                }
+
+                // Push to SuggestionEngine buffer
+                engine_for_transcript.push_transcript(evt).await;
             }
-            tracing::info!("transcript emit loop ended");
+            tracing::info!("transcript loop ended");
         });
+
+        // 6. Start auto-suggestion timer
+        let app_for_timer = app.clone();
+        let timer_handle = engine.clone().start_auto_timer(
+            Duration::from_secs(AUTO_SUGGESTION_INTERVAL_SECS),
+            app_for_timer,
+        );
 
         state.helper = Some(helper);
         state.forward_handle = Some(forward);
         state.transcript_handle = Some(transcript_loop);
-
-        // ASR is kept alive by the spawned forward task via Arc<Mutex<>>.
-        // When the forward task ends (frames_rx closed), it calls close() on the ASR,
-        // which drops the pcm send channels — the ASR's internal tasks then send
-        // finish-task and shut down naturally.
+        state.suggestion_engine = Some(engine);
+        state.suggestion_timer = Some(timer_handle);
+        state.current_meeting_id = Some(meeting_id);
 
         Ok(())
     }
@@ -112,30 +190,83 @@ impl Orchestrator {
         let mut state = self.inner.lock().await;
 
         // Shutdown helper (sends "stop" cmd + waits for child exit).
-        // This will cause the helper's stdout to close, which makes the frame reader
-        // loop end, which closes the frames channel, which makes the forward task end,
-        // which closes the ASR streams.
         if let Some(helper) = state.helper.take() {
             helper.shutdown().await?;
         }
-
-        // Abort spawned tasks to be safe + immediate (the natural shutdown above
-        // may take a moment, and we want stop() to return promptly).
         if let Some(h) = state.forward_handle.take() {
             h.abort();
         }
         if let Some(h) = state.transcript_handle.take() {
             h.abort();
         }
+        if let Some(h) = state.suggestion_timer.take() {
+            h.abort();
+        }
+        state.suggestion_engine = None;
 
+        // Mark meeting ended
+        if let Some(meeting_id) = state.current_meeting_id.take() {
+            let now = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let conn = self.db.conn();
+            if let Err(e) = conn.execute(
+                "UPDATE meetings SET ended_at = ? WHERE id = ?",
+                params![now, meeting_id],
+            ) {
+                tracing::warn!("update meeting ended_at failed: {e}");
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Manually trigger a suggestion. Returns Err if no meeting is active.
+    pub async fn trigger_suggestion(&self, app: tauri::AppHandle) -> Result<()> {
+        let engine = {
+            let state = self.inner.lock().await;
+            state
+                .suggestion_engine
+                .clone()
+                .ok_or_else(|| AppError::Asr("no active meeting".into()))?
+        };
+
+        let (tx, mut rx) = mpsc::channel::<String>(64);
+        let app_for_recv = app.clone();
+        let recv_task = tokio::spawn(async move {
+            while let Some(tok) = rx.recv().await {
+                let _ = app_for_recv.emit("suggestion_token", tok);
+            }
+        });
+
+        let result = engine.generate(TriggerType::Manual, tx).await;
+        let _ = recv_task.await;
+
+        if let Err(e) = result {
+            let _ = app.emit("suggestion_error", format!("{e}"));
+            return Err(e);
+        }
+        let _ = app.emit("suggestion_complete", ());
         Ok(())
     }
 }
 
-impl Default for Orchestrator {
-    fn default() -> Self {
-        Self::new()
-    }
+fn load_meeting_meta(db: &Db, meeting_id: &str) -> Result<MeetingMeta> {
+    let conn = db.conn();
+    let meta = conn.query_row(
+        "SELECT name, project_ref, purpose, participants FROM meetings WHERE id = ?",
+        [meeting_id],
+        |r| {
+            Ok(MeetingMeta {
+                name: r.get(0)?,
+                project_ref: r.get(1)?,
+                purpose: r.get(2)?,
+                participants: r.get(3)?,
+            })
+        },
+    )?;
+    Ok(meta)
 }
 
 fn locate_helper_binary() -> Result<PathBuf> {
