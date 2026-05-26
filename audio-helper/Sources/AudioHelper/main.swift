@@ -4,6 +4,7 @@ logInfo("AudioHelper started")
 
 let converter = PCMConverter()
 var systemCapture: SystemAudioCapture?
+let micCapture = MicCapture(converter: converter)
 
 if #available(macOS 13.0, *) {
     systemCapture = SystemAudioCapture(converter: converter)
@@ -17,12 +18,14 @@ func handleCommand(_ cmd: Command) async {
     case "start":
         do {
             try await systemCapture?.start()
+            try micCapture.start()
         } catch {
             logError("start failed: \(error)")
         }
     case "stop":
         do {
             try await systemCapture?.stop()
+            micCapture.stop()
         } catch {
             logError("stop failed: \(error)")
         }
@@ -34,7 +37,6 @@ func handleCommand(_ cmd: Command) async {
     }
 }
 
-// Main loop: read stdin commands, dispatch as async tasks
 let semaphore = DispatchSemaphore(value: 0)
 
 DispatchQueue.global().async {

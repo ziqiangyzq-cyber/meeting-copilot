@@ -19,14 +19,22 @@ enum AudioSource: UInt32 {
 
 let frameMagic: UInt32 = 0xAB12CD34
 
+// Serial queue for stdout writes (prevents frame corruption when multiple capture queues write concurrently)
+private let stdoutWriteQueue = DispatchQueue(label: "stdout-write-serializer")
+
 func writeFrame(source: AudioSource, pcm: Data, to fd: FileHandle) {
-    var magic = frameMagic.littleEndian
-    var src = source.rawValue.littleEndian
-    var size = UInt32(pcm.count).littleEndian
-    fd.write(Data(bytes: &magic, count: 4))
-    fd.write(Data(bytes: &src, count: 4))
-    fd.write(Data(bytes: &size, count: 4))
-    fd.write(pcm)
+    stdoutWriteQueue.sync {
+        var magic = frameMagic.littleEndian
+        var src = source.rawValue.littleEndian
+        var size = UInt32(pcm.count).littleEndian
+        // Pack into single Data first to minimize write calls (still atomic via serial queue)
+        var packet = Data(capacity: 12 + pcm.count)
+        packet.append(Data(bytes: &magic, count: 4))
+        packet.append(Data(bytes: &src, count: 4))
+        packet.append(Data(bytes: &size, count: 4))
+        packet.append(pcm)
+        fd.write(packet)
+    }
 }
 
 // stderr: JSON log lines
