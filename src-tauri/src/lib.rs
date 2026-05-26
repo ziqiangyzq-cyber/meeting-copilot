@@ -41,6 +41,13 @@ pub fn run() {
             let config = Config::from_env()
                 .expect("missing env vars (ALIYUN_API_KEY, MINIMAX_API_KEY)");
 
+            tracing::info!(
+                "config loaded: aliyun_key_len={} minimax_key_len={} minimax_key_prefix={}",
+                config.aliyun_api_key.len(),
+                config.minimax_api_key.len(),
+                config.minimax_api_key.chars().take(8).collect::<String>(),
+            );
+
             // DB at platform-appropriate data dir
             let data_dir = app
                 .path()

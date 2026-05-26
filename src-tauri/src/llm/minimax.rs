@@ -94,6 +94,16 @@ impl LLMClient for MiniMaxClient {
             max_tokens: DEFAULT_MAX_TOKENS,
         };
 
+        tracing::info!(
+            "minimax request: url={} key_len={} key_prefix={} model={} messages={} first_msg_len={}",
+            self.url,
+            self.api_key.len(),
+            self.api_key.chars().take(4).collect::<String>(),
+            self.model,
+            messages.len(),
+            messages.first().map(|m| m.content.len()).unwrap_or(0),
+        );
+
         let resp = self
             .client
             .post(&self.url)
@@ -102,7 +112,10 @@ impl LLMClient for MiniMaxClient {
             .json(&body)
             .send()
             .await
-            .map_err(|e| AppError::Asr(format!("minimax request failed: {e}")))?;
+            .map_err(|e| {
+                tracing::error!("minimax send failed (debug): {:#?}", e);
+                AppError::Asr(format!("minimax request failed: {e:?}"))
+            })?;
 
         let status = resp.status();
         if !status.is_success() {

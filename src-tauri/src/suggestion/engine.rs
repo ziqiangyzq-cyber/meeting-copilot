@@ -128,6 +128,7 @@ impl SuggestionEngine {
         if recent.trim().is_empty() {
             return Ok(());
         }
+        tracing::info!("suggestion generate: recent_transcript_chars={}", recent.chars().count());
 
         let query = self.buffer.lock().await.recent_text(QUERY_WINDOW_SECS);
         let query_str = if query.trim().is_empty() {
@@ -147,7 +148,14 @@ impl SuggestionEngine {
         )
         .await
         {
-            Ok(c) => c,
+            Ok(c) => {
+                tracing::info!(
+                    "RAG retrieve: chunks={} first_distance={}",
+                    c.len(),
+                    c.first().map(|ch| format!("{:.4}", ch.distance)).unwrap_or_else(|| "no chunks".into()),
+                );
+                c
+            }
             Err(e) => {
                 tracing::warn!("RAG retrieve failed, proceeding without context: {e}");
                 Vec::new()
@@ -158,6 +166,7 @@ impl SuggestionEngine {
         let user = user_prompt(&self.meta, &recent, &chunks);
 
         let messages = vec![Message::system(system), Message::user(user)];
+        tracing::info!("suggestion generate: calling LLM stream, messages={}", messages.len());
         self.llm.stream(messages, out).await
     }
 
