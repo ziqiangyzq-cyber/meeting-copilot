@@ -7,6 +7,7 @@ mod error;
 mod llm;
 mod orchestrator;
 mod rag;
+mod suggestion;
 
 use commands::{start_meeting, stop_meeting, AppState};
 use orchestrator::Orchestrator;
