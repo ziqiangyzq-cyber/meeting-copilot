@@ -34,3 +34,6 @@ logs
 *.log
 dist-ssr
 *.local
+
+# OMC framework local state
+.omc/
