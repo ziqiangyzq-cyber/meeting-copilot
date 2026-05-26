@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod db;
 mod error;
+mod llm;
 mod orchestrator;
 mod rag;
 
