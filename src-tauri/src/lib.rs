@@ -2,6 +2,7 @@ mod asr;
 mod audio_pump;
 mod commands;
 mod config;
+mod db;
 mod error;
 mod orchestrator;
 

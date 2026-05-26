@@ -19,6 +19,9 @@ pub enum AppError {
 
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
+
+    #[error("DB error: {0}")]
+    Db(#[from] rusqlite::Error),
 }
 
 pub type Result<T> = std::result::Result<T, AppError>;
