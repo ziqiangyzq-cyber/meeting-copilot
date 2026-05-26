@@ -1,10 +1,15 @@
 import { useEffect, useState } from 'react';
+import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import {
   TranscriptEvent,
   onTranscript,
   stopMeeting,
   hideFloating,
+  triggerSuggestion,
 } from '../lib/tauri-bridge';
+import { SuggestionCard } from '../components/SuggestionCard';
+
+const SHORTCUT = 'CommandOrControl+Shift+M';
 
 export function Floating() {
   const [items, setItems] = useState<TranscriptEvent[]>([]);
@@ -30,6 +35,36 @@ export function Floating() {
     return () => unlisten?.();
   }, []);
 
+  // Register global shortcut Cmd+Shift+M → trigger_suggestion
+  useEffect(() => {
+    let registered = false;
+
+    (async () => {
+      try {
+        await register(SHORTCUT, async (event) => {
+          if (event.state === 'Pressed') {
+            try {
+              await triggerSuggestion();
+            } catch (e) {
+              console.error('trigger_suggestion via shortcut failed', e);
+            }
+          }
+        });
+        registered = true;
+      } catch (e) {
+        console.error('register shortcut failed', e);
+      }
+    })();
+
+    return () => {
+      if (registered) {
+        unregister(SHORTCUT).catch((e) =>
+          console.error('unregister shortcut failed', e)
+        );
+      }
+    };
+  }, []);
+
   const handleStop = async () => {
     try {
       await stopMeeting();
@@ -37,7 +72,6 @@ export function Floating() {
       console.error('stop_meeting failed', e);
     }
     await hideFloating();
-    // T11 will navigate main back to setup form; for now, just hide floating
   };
 
   return (
@@ -78,9 +112,9 @@ export function Floating() {
         ))}
       </div>
 
-      {/* Bottom suggestion placeholder (T11 fills) */}
-      <div className="border-t border-white/10 px-3 py-2 text-white/50 text-[10px]">
-        建议区(T11)
+      {/* Suggestion card (T11) */}
+      <div className="border-t border-white/10 max-h-[180px] overflow-y-auto">
+        <SuggestionCard />
       </div>
     </div>
   );

@@ -72,3 +72,21 @@ export async function showFloating(): Promise<void> {
 export async function hideFloating(): Promise<void> {
   await invoke('hide_floating');
 }
+
+// --- Suggestion events (T11) ---
+
+export async function triggerSuggestion(): Promise<void> {
+  await invoke('trigger_suggestion');
+}
+
+export async function onSuggestionToken(cb: (token: string) => void): Promise<UnlistenFn> {
+  return listen<string>('suggestion_token', (e) => cb(e.payload));
+}
+
+export async function onSuggestionComplete(cb: () => void): Promise<UnlistenFn> {
+  return listen<void>('suggestion_complete', () => cb());
+}
+
+export async function onSuggestionError(cb: (err: string) => void): Promise<UnlistenFn> {
+  return listen<string>('suggestion_error', (e) => cb(e.payload));
+}
