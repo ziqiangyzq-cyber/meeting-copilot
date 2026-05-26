@@ -25,6 +25,9 @@ audio-helper/Package.resolved
 # 录音(本地存,大文件,不进 git)
 recordings/
 
+# test audio fixtures (large + regenerable)
+tests/fixtures/
+
 # Tauri builds
 src-tauri/target/
 logs

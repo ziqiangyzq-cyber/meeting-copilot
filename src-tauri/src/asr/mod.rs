@@ -13,3 +13,6 @@ pub trait ASRClient: Send + Sync {
     async fn push_pcm(&mut self, src: AudioSource, pcm: &[u8]) -> crate::error::Result<()>;
     async fn close(&mut self) -> crate::error::Result<()>;
 }
+
+#[cfg(test)]
+mod tests;
