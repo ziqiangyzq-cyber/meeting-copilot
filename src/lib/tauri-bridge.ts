@@ -94,3 +94,21 @@ export async function onSuggestionError(cb: (err: string) => void): Promise<Unli
 export async function listSupportedFiles(folder: string): Promise<string[]> {
   return await invoke<string[]>('list_supported_files', { folder });
 }
+
+// --- Minutes events (T2) ---
+
+export async function generateMinutes(meetingId: string): Promise<string> {
+  return await invoke<string>('generate_minutes', { meetingId });
+}
+
+export async function onMinutesToken(cb: (token: string) => void): Promise<UnlistenFn> {
+  return listen<string>('minutes_token', (e) => cb(e.payload));
+}
+
+export async function onMinutesComplete(cb: (markdown: string) => void): Promise<UnlistenFn> {
+  return listen<string>('minutes_complete', (e) => cb(e.payload));
+}
+
+export async function onMinutesError(cb: (err: string) => void): Promise<UnlistenFn> {
+  return listen<string>('minutes_error', (e) => cb(e.payload));
+}

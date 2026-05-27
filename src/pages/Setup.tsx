@@ -7,12 +7,14 @@ import {
 import { MeetingForm } from '../components/MeetingForm';
 import { MaterialFolderPicker } from '../components/MaterialFolderPicker';
 import { MeetingView } from './MeetingView';
+import { MinutesView } from './MinutesView';
 
-type Stage = 'form' | 'materials' | 'starting' | 'started';
+type Stage = 'form' | 'materials' | 'starting' | 'started' | 'minutes';
 
 export function Setup() {
   const [stage, setStage] = useState<Stage>('form');
   const [meetingId, setMeetingId] = useState<string | null>(null);
+  const [meetingName, setMeetingName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [materialsReady, setMaterialsReady] = useState(false);
 
@@ -21,6 +23,7 @@ export function Setup() {
     try {
       const id = await createMeeting(draft);
       setMeetingId(id);
+      setMeetingName(draft.name);
       setMaterialsReady(true); // ready immediately — no files yet
       setStage('materials');
     } catch (e) {
@@ -44,11 +47,24 @@ export function Setup() {
     }
   };
 
+  if (stage === 'minutes' && meetingId) {
+    return (
+      <MinutesView
+        meetingId={meetingId}
+        meetingName={meetingName}
+        onBack={() => {
+          setStage('form');
+          setMeetingId(null);
+          setMeetingName('');
+          setMaterialsReady(false);
+        }}
+      />
+    );
+  }
+
   if (stage === 'started') {
     return <MeetingView onEnd={() => {
-      setStage('form');
-      setMeetingId(null);
-      setMaterialsReady(false);
+      setStage('minutes');
     }} />;
   }
 
