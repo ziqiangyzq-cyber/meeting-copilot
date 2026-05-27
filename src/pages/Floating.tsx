@@ -12,6 +12,7 @@ import { SuggestionCard } from '../components/SuggestionCard';
 const SHORTCUT = 'CommandOrControl+Shift+M';
 
 export function Floating() {
+  console.log('[Floating] component mounting, location:', window.location.href);
   const [items, setItems] = useState<TranscriptEvent[]>([]);
   const [isAsrOk] = useState(true);
 
@@ -32,7 +33,10 @@ export function Floating() {
     }).then((fn) => {
       unlisten = fn;
     });
-    return () => unlisten?.();
+    return () => {
+      console.log('[Floating] component unmounting');
+      unlisten?.();
+    };
   }, []);
 
   // Register global shortcut Cmd+Shift+M → trigger_suggestion
@@ -76,6 +80,11 @@ export function Floating() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-black/80 backdrop-blur text-white text-xs font-mono select-none">
+      {items.length === 0 && (
+        <div className="p-4 bg-yellow-500 text-black text-sm">
+          [DEBUG] 浮窗已加载 — 等待转写...
+        </div>
+      )}
       {/* Top bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
         <span className={isAsrOk ? 'text-green-400' : 'text-orange-400'}>●</span>

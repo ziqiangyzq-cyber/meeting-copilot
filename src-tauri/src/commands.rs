@@ -127,18 +127,45 @@ pub async fn show_floating(app: tauri::AppHandle) -> std::result::Result<(), Str
         .get_webview_window("floating")
         .ok_or_else(|| "floating window not found".to_string())?;
 
-    // Position to bottom-right of primary monitor before showing
-    if let Some(monitor) = win.current_monitor().map_err(|e| e.to_string())? {
+    // Try current monitor first; fall back to primary monitor; fall back to (100, 100).
+    let monitor = win
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| win.primary_monitor().ok().flatten());
+
+    if let Some(monitor) = monitor {
         let size = win.outer_size().map_err(|e| e.to_string())?;
-        let mon = monitor.size();
+        let mon_size = monitor.size();
+        let mon_pos = monitor.position();
         let scale = monitor.scale_factor();
         let margin = (20.0 * scale) as i32;
-        let x = mon.width as i32 - size.width as i32 - margin;
-        let y = mon.height as i32 - size.height as i32 - margin * 4; // higher margin from bottom (avoid dock)
-        win.set_position(tauri::PhysicalPosition { x, y }).ok();
+        let x = mon_pos.x + mon_size.width as i32 - size.width as i32 - margin;
+        let y = mon_pos.y + mon_size.height as i32 - size.height as i32 - margin * 4;
+        tracing::info!(
+            "show_floating: positioning to ({}, {}) on monitor {}x{} @ ({}, {}), scale={}",
+            x,
+            y,
+            mon_size.width,
+            mon_size.height,
+            mon_pos.x,
+            mon_pos.y,
+            scale
+        );
+        win.set_position(tauri::PhysicalPosition { x, y })
+            .map_err(|e| format!("set_position failed: {e}"))?;
+    } else {
+        tracing::warn!("show_floating: no monitor found, using fallback position (100, 100)");
+        win.set_position(tauri::PhysicalPosition {
+            x: 100_i32,
+            y: 100_i32,
+        })
+        .map_err(|e| format!("set_position fallback failed: {e}"))?;
     }
 
-    win.show().map_err(|e| e.to_string())?;
+    win.show().map_err(|e| format!("show failed: {e}"))?;
+    win.set_focus().ok(); // bring it forward in case it's behind main window
+    tracing::info!("show_floating: window shown");
     Ok(())
 }
 

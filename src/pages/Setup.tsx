@@ -34,10 +34,14 @@ export function Setup() {
     setStage('starting');
     setError(null);
     try {
+      console.log('[Setup] calling startMeetingWithId', meetingId);
       await startMeetingWithId(meetingId);
+      console.log('[Setup] start_meeting OK, calling showFloating');
       await showFloating();
+      console.log('[Setup] showFloating OK');
       setStage('started');
     } catch (e) {
+      console.error('[Setup] handleStart error:', e);
       setError(String(e));
       setStage('materials');
     }
