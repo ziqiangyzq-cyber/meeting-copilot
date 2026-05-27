@@ -70,6 +70,17 @@ impl Orchestrator {
         self.config.read().unwrap().aliyun_api_key.clone()
     }
 
+    pub fn current_minimax_key(&self) -> String {
+        self.config.read().unwrap().minimax_api_key.clone()
+    }
+
+    /// Returns true if both API keys are present in the in-memory config
+    /// (set at startup from Keychain OR via Settings save → reconfigure).
+    pub fn has_keys(&self) -> bool {
+        let cfg = self.config.read().unwrap();
+        !cfg.aliyun_api_key.trim().is_empty() && !cfg.minimax_api_key.trim().is_empty()
+    }
+
     pub fn reconfigure(&self, config: &Config) {
         let new_embed = Arc::new(EmbeddingClient::new(config.aliyun_api_key.clone()));
         let new_llm: Arc<dyn LLMClient> =

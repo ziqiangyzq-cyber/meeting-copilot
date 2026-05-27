@@ -93,7 +93,7 @@ pub async fn ingest_material(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<String, String> {
-    if !crate::config::keys_configured() {
+    if !state.orchestrator.has_keys() {
         return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
     }
     let path = PathBuf::from(&file_path);
@@ -143,7 +143,7 @@ pub async fn start_meeting(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<(), String> {
-    if !crate::config::keys_configured() {
+    if !state.orchestrator.has_keys() {
         return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
     }
     state
@@ -167,7 +167,7 @@ pub async fn trigger_suggestion(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<(), String> {
-    if !crate::config::keys_configured() {
+    if !state.orchestrator.has_keys() {
         return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
     }
     state
@@ -204,7 +204,7 @@ pub async fn translate_text(
     text: String,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<String, String> {
-    if !crate::config::keys_configured() {
+    if !state.orchestrator.has_keys() {
         return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
     }
     let llm = state.orchestrator.llm();
@@ -236,7 +236,7 @@ pub async fn generate_minutes(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<String, String> {
-    if !crate::config::keys_configured() {
+    if !state.orchestrator.has_keys() {
         return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
     }
     let db = state.orchestrator.db();
@@ -451,23 +451,14 @@ pub struct KeyStatus {
 }
 
 #[tauri::command]
-pub async fn get_api_key_status() -> std::result::Result<KeyStatus, String> {
-    Ok(KeyStatus {
-        aliyun_set: crate::keychain::get("ALIYUN_API_KEY")
-            .ok()
-            .flatten()
-            .is_some()
-            || std::env::var("ALIYUN_API_KEY")
-                .map(|v| !v.trim().is_empty())
-                .unwrap_or(false),
-        minimax_set: crate::keychain::get("MINIMAX_API_KEY")
-            .ok()
-            .flatten()
-            .is_some()
-            || std::env::var("MINIMAX_API_KEY")
-                .map(|v| !v.trim().is_empty())
-                .unwrap_or(false),
-    })
+pub async fn get_api_key_status(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<KeyStatus, String> {
+    // Orchestrator's in-memory config is the source of truth — reflects
+    // both Keychain-loaded keys at startup AND keys updated via Settings save.
+    let aliyun_set = !state.orchestrator.current_aliyun_key().trim().is_empty();
+    let minimax_set = !state.orchestrator.current_minimax_key().trim().is_empty();
+    Ok(KeyStatus { aliyun_set, minimax_set })
 }
 
 #[tauri::command]

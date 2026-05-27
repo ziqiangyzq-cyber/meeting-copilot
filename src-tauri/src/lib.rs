@@ -49,9 +49,11 @@ pub fn run() {
             });
 
             tracing::info!(
-                "config loaded: aliyun_set={} minimax_set={}",
+                "startup config: aliyun_set={} (len={}), minimax_set={} (len={})",
                 !config.aliyun_api_key.is_empty(),
+                config.aliyun_api_key.len(),
                 !config.minimax_api_key.is_empty(),
+                config.minimax_api_key.len(),
             );
 
             // DB at platform-appropriate data dir
