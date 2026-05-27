@@ -14,7 +14,8 @@ mod suggestion;
 use commands::{
     create_meeting, generate_minutes, get_api_key_status, get_meeting_detail, ingest_material,
     list_meetings, list_supported_files, save_api_keys, set_suggestions_enabled, start_meeting,
-    stop_meeting, translate_text, trigger_suggestion, update_focus_points, AppState,
+    stop_meeting, test_aliyun_key, test_minimax_key, translate_text, trigger_suggestion,
+    update_focus_points, AppState,
 };
 use config::Config;
 use db::Db;
@@ -81,7 +82,9 @@ pub fn run() {
             get_meeting_detail,
             update_focus_points,
             get_api_key_status,
-            save_api_keys
+            save_api_keys,
+            test_aliyun_key,
+            test_minimax_key
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

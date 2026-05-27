@@ -191,3 +191,11 @@ export async function getApiKeyStatus(): Promise<KeyStatus> {
 export async function saveApiKeys(aliyun: string, minimax: string): Promise<void> {
   await invoke('save_api_keys', { aliyun, minimax });
 }
+
+export async function testAliyunKey(key: string): Promise<void> {
+  return await invoke('test_aliyun_key', { key });
+}
+
+export async function testMinimaxKey(key: string): Promise<void> {
+  return await invoke('test_minimax_key', { key });
+}

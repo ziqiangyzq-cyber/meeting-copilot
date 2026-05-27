@@ -482,3 +482,104 @@ pub async fn save_api_keys(
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn test_aliyun_key(key: String) -> std::result::Result<(), String> {
+    let key = key.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    if key.is_empty() {
+        return Err("Key 为空".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(15))
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+
+    let resp = client
+        .post("https://dashscope.aliyuncs.com/api/v1/services/embeddings/text-embedding/text-embedding")
+        .header("Authorization", format!("Bearer {key}"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "model": "text-embedding-v3",
+            "input": { "texts": ["hi"] },
+            "parameters": { "dimension": 1024 }
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {e}"))?;
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if status.is_success() {
+        // Verify response has embeddings (some 200 OK responses still indicate model issues)
+        if body.contains("\"embeddings\"") {
+            Ok(())
+        } else {
+            Err(format!("响应异常:{}", body.chars().take(200).collect::<String>()))
+        }
+    } else if status.as_u16() == 401 {
+        Err("Key 无效(401 Unauthorized) — 请检查阿里 DashScope key 是否复制完整".into())
+    } else if status.as_u16() == 403 {
+        Err("权限不足(403) — 可能 text-embedding-v3 没在百炼开通".into())
+    } else {
+        Err(format!("HTTP {status}: {}", body.chars().take(200).collect::<String>()))
+    }
+}
+
+#[tauri::command]
+pub async fn test_minimax_key(key: String) -> std::result::Result<(), String> {
+    let key = key.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    if key.is_empty() {
+        return Err("Key 为空".into());
+    }
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+
+    let resp = client
+        .post("https://api.minimaxi.com/v1/text/chatcompletion_v2")
+        .header("Authorization", format!("Bearer {key}"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "model": "MiniMax-M2.7-highspeed",
+            "messages": [{"role": "user", "content": "hi"}],
+            "max_tokens": 5,
+            "stream": false
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {e}"))?;
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+
+    if status.as_u16() == 401 {
+        return Err("Key 无效(401) — 请检查 MiniMax key 是否复制完整".into());
+    }
+    if !status.is_success() {
+        return Err(format!("HTTP {status}: {}", body.chars().take(300).collect::<String>()));
+    }
+
+    // MiniMax returns 200 even for plan-not-support errors; check base_resp.status_code
+    let parsed: serde_json::Value = match serde_json::from_str(&body) {
+        Ok(v) => v,
+        Err(e) => return Err(format!("响应解析失败: {e}")),
+    };
+
+    let base_status = parsed.get("base_resp")
+        .and_then(|b| b.get("status_code"))
+        .and_then(|c| c.as_i64())
+        .unwrap_or(-1);
+
+    if base_status == 0 {
+        Ok(())
+    } else if base_status == 2061 {
+        Err("Token plan 不支持 MiniMax-M2.7-highspeed — 去 https://platform.minimaxi.com 开通这个模型".into())
+    } else {
+        let msg = parsed.get("base_resp")
+            .and_then(|b| b.get("status_msg"))
+            .and_then(|m| m.as_str())
+            .unwrap_or("(no msg)");
+        Err(format!("MiniMax 错误 [{base_status}]: {msg}"))
+    }
+}
