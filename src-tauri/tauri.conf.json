@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build && bash scripts/bundle-audio-helper.sh",
+    "beforeBuildCommand": "pnpm build && bash src-tauri/scripts/bundle-audio-helper.sh",
     "frontendDist": "../dist"
   },
   "app": {
