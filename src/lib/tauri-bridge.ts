@@ -176,3 +176,18 @@ export async function listMeetings(): Promise<MeetingSummary[]> {
 export async function getMeetingDetail(meetingId: string): Promise<MeetingDetail> {
   return await invoke<MeetingDetail>('get_meeting_detail', { meetingId });
 }
+
+// --- API Key management (Plan 4 Phase A) ---
+
+export interface KeyStatus {
+  aliyun_set: boolean;
+  minimax_set: boolean;
+}
+
+export async function getApiKeyStatus(): Promise<KeyStatus> {
+  return await invoke<KeyStatus>('get_api_key_status');
+}
+
+export async function saveApiKeys(aliyun: string, minimax: string): Promise<void> {
+  await invoke('save_api_keys', { aliyun, minimax });
+}

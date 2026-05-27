@@ -4,6 +4,7 @@ mod commands;
 mod config;
 mod db;
 mod error;
+mod keychain;
 mod llm;
 mod minutes;
 mod orchestrator;
@@ -11,9 +12,9 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, generate_minutes, get_meeting_detail, ingest_material, list_meetings,
-    list_supported_files, set_suggestions_enabled, start_meeting, stop_meeting, translate_text,
-    trigger_suggestion, update_focus_points, AppState,
+    create_meeting, generate_minutes, get_api_key_status, get_meeting_detail, ingest_material,
+    list_meetings, list_supported_files, save_api_keys, set_suggestions_enabled, start_meeting,
+    stop_meeting, translate_text, trigger_suggestion, update_focus_points, AppState,
 };
 use config::Config;
 use db::Db;
@@ -41,14 +42,15 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
         .setup(|app| {
-            let config = Config::from_env()
-                .expect("missing env vars (ALIYUN_API_KEY, MINIMAX_API_KEY)");
+            let config = Config::load().unwrap_or(None).unwrap_or_else(|| Config {
+                aliyun_api_key: String::new(),
+                minimax_api_key: String::new(),
+            });
 
             tracing::info!(
-                "config loaded: aliyun_key_len={} minimax_key_len={} minimax_key_prefix={}",
-                config.aliyun_api_key.len(),
-                config.minimax_api_key.len(),
-                config.minimax_api_key.chars().take(8).collect::<String>(),
+                "config loaded: aliyun_set={} minimax_set={}",
+                !config.aliyun_api_key.is_empty(),
+                !config.minimax_api_key.is_empty(),
             );
 
             // DB at platform-appropriate data dir
@@ -77,7 +79,9 @@ pub fn run() {
             generate_minutes,
             list_meetings,
             get_meeting_detail,
-            update_focus_points
+            update_focus_points,
+            get_api_key_status,
+            save_api_keys
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

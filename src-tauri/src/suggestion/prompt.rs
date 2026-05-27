@@ -10,7 +10,7 @@ pub struct MeetingMeta {
     pub focus_points: Option<String>,
 }
 
-const SYSTEM_PROMPT: &str = r#"你是 Zion 的会议 AI 助理。他正在开一场会议(类型不定:可能是工作会议 / 客户谈判 / 项目评审 / 内部讨论 / 私人沟通,完全看会议元数据)。
+const SYSTEM_PROMPT: &str = r#"你是用户的会议 AI 助理。用户正在开一场会议(类型不定:可能是工作会议 / 客户谈判 / 项目评审 / 内部讨论 / 私人沟通,完全看会议元数据)。
 
 ## 你的角色
 
@@ -27,7 +27,7 @@ const SYSTEM_PROMPT: &str = r#"你是 Zion 的会议 AI 助理。他正在开一
 
 ## 关注用户的"重点关注"
 
-如果会议元数据里有"本次重点关注"字段,**那就是 Zion 这场会议最在意的事**。你的建议应该围绕这些点优先思考。
+如果会议元数据里有"本次重点关注"字段,**那就是用户这场会议最在意的事**。你的建议应该围绕这些点优先思考。
 
 ## 禁止
 - 不要总结"对方说了什么"(他听得到)
@@ -61,7 +61,7 @@ pub fn user_prompt(
     if let Some(f) = &meta.focus_points {
         if !f.trim().is_empty() {
             let _ = writeln!(out);
-            let _ = writeln!(out, "## 本次重点关注(Zion 临时设的,你的建议要围绕这个)");
+            let _ = writeln!(out, "## 本次重点关注(用户临时设的,你的建议要围绕这个)");
             let _ = writeln!(out, "{}", f.trim());
         }
     }
@@ -148,7 +148,8 @@ mod tests {
     #[test]
     fn system_prompt_contains_role() {
         let s = system_prompt();
-        assert!(s.contains("Zion"));
+        assert!(s.contains("会议 AI 助理"));
+        assert!(!s.contains("Zion"));
         assert!(s.contains("智能混合"));
         assert!(s.contains("战术"));
         assert!(s.contains("战略"));

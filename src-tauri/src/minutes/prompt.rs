@@ -1,8 +1,8 @@
 use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
 use std::fmt::Write;
 
-const SYSTEM_PROMPT: &str = r#"你是 Zion 的会议纪要生成助手。
-他刚开完一场会议(类型不定 — 工作 / 客户 / 评审 / 私人沟通都有可能)。
+const SYSTEM_PROMPT: &str = r#"你是用户的会议纪要生成助手。
+用户刚开完一场会议(类型不定 — 工作 / 客户 / 评审 / 私人沟通都有可能)。
 不要预设行业,根据会议元数据 + 转写内容判断场景。
 你的任务:基于全场转写 + AI 给过的建议历史 + 会议元数据,生成一份结构化中文 Markdown 纪要。
 
@@ -249,7 +249,8 @@ mod tests {
     #[test]
     fn system_prompt_is_neutralized() {
         let s = system_prompt();
-        assert!(s.contains("Zion"));
+        assert!(s.contains("会议纪要生成助手"));
+        assert!(!s.contains("Zion"));
         assert!(!s.contains("EFC 创羿幕墙"));
     }
 }

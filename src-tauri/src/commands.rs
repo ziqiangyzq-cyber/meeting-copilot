@@ -1,4 +1,3 @@
-use crate::config::Config;
 use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
 use crate::llm::Message;
 use crate::minutes::generator::MinutesGenerator;
@@ -94,6 +93,9 @@ pub async fn ingest_material(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<String, String> {
+    if !crate::config::keys_configured() {
+        return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
+    }
     let path = PathBuf::from(&file_path);
 
     let _ = app.emit(
@@ -141,10 +143,12 @@ pub async fn start_meeting(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<(), String> {
-    let config = Config::from_env().map_err(|e| e.to_string())?;
+    if !crate::config::keys_configured() {
+        return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
+    }
     state
         .orchestrator
-        .start(&config, app, meeting_id)
+        .start(app, meeting_id)
         .await
         .map_err(|e| e.to_string())?;
     Ok(())
@@ -163,6 +167,9 @@ pub async fn trigger_suggestion(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<(), String> {
+    if !crate::config::keys_configured() {
+        return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
+    }
     state
         .orchestrator
         .trigger_suggestion(app)
@@ -197,6 +204,9 @@ pub async fn translate_text(
     text: String,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<String, String> {
+    if !crate::config::keys_configured() {
+        return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
+    }
     let llm = state.orchestrator.llm();
 
     let messages = vec![
@@ -226,6 +236,9 @@ pub async fn generate_minutes(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
 ) -> std::result::Result<String, String> {
+    if !crate::config::keys_configured() {
+        return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
+    }
     let db = state.orchestrator.db();
     let llm = state.orchestrator.llm();
     let generator = MinutesGenerator::new(db, llm);
@@ -429,4 +442,43 @@ pub async fn get_meeting_detail(
         latest_minutes_md,
         latest_minutes_version,
     })
+}
+
+#[derive(Serialize)]
+pub struct KeyStatus {
+    pub aliyun_set: bool,
+    pub minimax_set: bool,
+}
+
+#[tauri::command]
+pub async fn get_api_key_status() -> std::result::Result<KeyStatus, String> {
+    Ok(KeyStatus {
+        aliyun_set: crate::keychain::get("ALIYUN_API_KEY")
+            .ok()
+            .flatten()
+            .is_some()
+            || std::env::var("ALIYUN_API_KEY")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false),
+        minimax_set: crate::keychain::get("MINIMAX_API_KEY")
+            .ok()
+            .flatten()
+            .is_some()
+            || std::env::var("MINIMAX_API_KEY")
+                .map(|v| !v.trim().is_empty())
+                .unwrap_or(false),
+    })
+}
+
+#[tauri::command]
+pub async fn save_api_keys(
+    aliyun: String,
+    minimax: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    crate::config::save_keys(&aliyun, &minimax).map_err(|e| e.to_string())?;
+    if let Ok(Some(config)) = crate::config::Config::load() {
+        state.orchestrator.reconfigure(&config);
+    }
+    Ok(())
 }

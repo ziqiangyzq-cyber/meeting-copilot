@@ -9,7 +9,7 @@ use crate::rag::embedding::EmbeddingClient;
 use crate::suggestion::{SuggestionEngine, TriggerType};
 use rusqlite::params;
 use std::path::PathBuf;
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 use std::time::Duration;
 use tauri::Emitter;
 use tokio::sync::{mpsc, Mutex};
@@ -20,8 +20,9 @@ const AUTO_SUGGESTION_INTERVAL_SECS: u64 = 20;
 pub struct Orchestrator {
     inner: Arc<Mutex<OrchestratorState>>,
     db: Arc<Db>,
-    embed: Arc<EmbeddingClient>,
-    llm: Arc<dyn LLMClient>,
+    embed: Arc<RwLock<Arc<EmbeddingClient>>>,
+    llm: Arc<RwLock<Arc<dyn LLMClient>>>,
+    config: Arc<RwLock<Config>>,
 }
 
 struct OrchestratorState {
@@ -47,8 +48,9 @@ impl Orchestrator {
                 current_meeting_id: None,
             })),
             db,
-            embed,
-            llm,
+            embed: Arc::new(RwLock::new(embed)),
+            llm: Arc::new(RwLock::new(llm)),
+            config: Arc::new(RwLock::new(config.clone())),
         }
     }
 
@@ -57,17 +59,30 @@ impl Orchestrator {
     }
 
     pub fn embed(&self) -> Arc<EmbeddingClient> {
-        self.embed.clone()
+        self.embed.read().unwrap().clone()
     }
 
     pub fn llm(&self) -> Arc<dyn LLMClient> {
-        self.llm.clone()
+        self.llm.read().unwrap().clone()
+    }
+
+    pub fn current_aliyun_key(&self) -> String {
+        self.config.read().unwrap().aliyun_api_key.clone()
+    }
+
+    pub fn reconfigure(&self, config: &Config) {
+        let new_embed = Arc::new(EmbeddingClient::new(config.aliyun_api_key.clone()));
+        let new_llm: Arc<dyn LLMClient> =
+            Arc::new(MiniMaxClient::new(config.minimax_api_key.clone()));
+        *self.embed.write().unwrap() = new_embed;
+        *self.llm.write().unwrap() = new_llm;
+        *self.config.write().unwrap() = config.clone();
+        tracing::info!("orchestrator clients reconfigured");
     }
 
     /// Start a meeting: spawn AudioHelper, connect ASR, init SuggestionEngine, start auto timer.
     pub async fn start(
         &self,
-        config: &Config,
         app: tauri::AppHandle,
         meeting_id: String,
     ) -> Result<()> {
@@ -84,16 +99,16 @@ impl Orchestrator {
 
         // 2. Connect ASR
         let (transcript_tx, mut transcript_rx) = mpsc::channel::<TranscriptEvent>(64);
-        let asr = AliyunParaformer::connect(config.aliyun_api_key.clone(), None, transcript_tx)
-            .await?;
+        let asr =
+            AliyunParaformer::connect(self.current_aliyun_key(), None, transcript_tx).await?;
         let asr = Arc::new(Mutex::new(asr));
 
         // 3. Build SuggestionEngine (meta re-read from DB on each generate so
         // mid-meeting focus_points edits take effect immediately).
         let engine = Arc::new(SuggestionEngine::new(
             self.db.clone(),
-            self.embed.clone(),
-            self.llm.clone(),
+            self.embed(),
+            self.llm(),
             meeting_id.clone(),
         ));
 

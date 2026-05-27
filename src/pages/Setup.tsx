@@ -13,7 +13,7 @@ import { HistoryDetail } from './HistoryDetail';
 
 type Stage = 'form' | 'materials' | 'starting' | 'started' | 'minutes' | 'history-list' | 'history-detail';
 
-export function Setup() {
+export function Setup({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
   const [stage, setStage] = useState<Stage>('form');
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [meetingName, setMeetingName] = useState<string>('');
@@ -107,7 +107,7 @@ export function Setup() {
   return (
     <div className="min-h-screen bg-white p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">会议助理</h1>
-      <p className="text-gray-600 mb-6 text-sm">EFC 会议 AI 助理 — 实时转写 + 智能建议</p>
+      <p className="text-gray-600 mb-6 text-sm">实时转写 + 智能建议 + 会议纪要</p>
 
       {error && (
         <div className="mb-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
@@ -119,12 +119,23 @@ export function Setup() {
         <section>
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-lg font-semibold">1. 新建会议</h2>
-            <button
-              onClick={() => setStage('history-list')}
-              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
-            >
-              📋 历史会议
-            </button>
+            <div className="flex gap-2">
+              {onOpenSettings && (
+                <button
+                  onClick={onOpenSettings}
+                  className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+                  title="设置 (修改 API Key)"
+                >
+                  ⚙️
+                </button>
+              )}
+              <button
+                onClick={() => setStage('history-list')}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+              >
+                📋 历史会议
+              </button>
+            </div>
           </div>
           <MeetingForm onSubmit={handleCreate} />
         </section>
