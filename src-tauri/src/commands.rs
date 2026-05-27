@@ -123,6 +123,27 @@ pub async fn trigger_suggestion(
 }
 
 #[tauri::command]
+pub async fn set_suggestions_enabled(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> std::result::Result<(), String> {
+    if enabled {
+        state
+            .orchestrator
+            .resume_suggestions(app)
+            .await
+            .map_err(|e| e.to_string())
+    } else {
+        state
+            .orchestrator
+            .pause_suggestions()
+            .await
+            .map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
 pub async fn translate_text(
     text: String,
     state: tauri::State<'_, AppState>,

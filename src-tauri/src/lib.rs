@@ -10,8 +10,8 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, ingest_material, list_supported_files, start_meeting, stop_meeting,
-    translate_text, trigger_suggestion, AppState,
+    create_meeting, ingest_material, list_supported_files, set_suggestions_enabled, start_meeting,
+    stop_meeting, translate_text, trigger_suggestion, AppState,
 };
 use config::Config;
 use db::Db;
@@ -36,7 +36,6 @@ pub fn run() {
 
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
-        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config = Config::from_env()
@@ -69,6 +68,7 @@ pub fn run() {
             start_meeting,
             stop_meeting,
             trigger_suggestion,
+            set_suggestions_enabled,
             translate_text,
             list_supported_files
         ])

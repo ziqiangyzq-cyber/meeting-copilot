@@ -71,6 +71,10 @@ export async function triggerSuggestion(): Promise<void> {
   await invoke('trigger_suggestion');
 }
 
+export async function setSuggestionsEnabled(enabled: boolean): Promise<void> {
+  await invoke('set_suggestions_enabled', { enabled });
+}
+
 export async function translateText(text: string): Promise<string> {
   return await invoke<string>('translate_text', { text });
 }

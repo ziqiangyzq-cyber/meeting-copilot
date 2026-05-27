@@ -1,12 +1,11 @@
 import { useEffect, useRef, useState } from 'react';
-import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import {
   TranscriptEvent,
   onTranscript,
   onSuggestionToken,
   onSuggestionComplete,
   onSuggestionError,
-  triggerSuggestion,
+  setSuggestionsEnabled,
   stopMeeting,
   translateText,
 } from '../lib/tauri-bridge';
@@ -35,9 +34,25 @@ export function MeetingView({ onEnd }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [translations, setTranslations] = useState<Record<number, string>>({});
   const [translating, setTranslating] = useState<Set<number>>(new Set());
+  const [suggestEnabled, setSuggestEnabled] = useState<boolean>(() => {
+    const stored = localStorage.getItem('suggestEnabled');
+    return stored === null ? true : stored === 'true';
+  });
   const accumRef = useRef<string>('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const translationDispatched = useRef<Set<number>>(new Set());
+
+  // Persist toggle to localStorage
+  useEffect(() => {
+    localStorage.setItem('suggestEnabled', String(suggestEnabled));
+  }, [suggestEnabled]);
+
+  // Sync toggle state to backend (covers initial mount + subsequent flips)
+  useEffect(() => {
+    setSuggestionsEnabled(suggestEnabled).catch((e) =>
+      console.error('set_suggestions_enabled failed', e),
+    );
+  }, [suggestEnabled]);
 
   // transcript subscription
   useEffect(() => {
@@ -89,33 +104,6 @@ export function MeetingView({ onEnd }: Props) {
     };
   }, []);
 
-  // Register global shortcut Cmd+Shift+M → trigger_suggestion
-  useEffect(() => {
-    const shortcut = 'CommandOrControl+Shift+M';
-    let registered = false;
-    (async () => {
-      try {
-        await register(shortcut, async (event) => {
-          if (event.state === 'Pressed') {
-            try {
-              await triggerSuggestion();
-            } catch (e) {
-              console.error('trigger_suggestion via shortcut failed', e);
-            }
-          }
-        });
-        registered = true;
-      } catch (e) {
-        console.error('register shortcut failed', e);
-      }
-    })();
-    return () => {
-      if (registered) {
-        unregister(shortcut).catch((e) => console.error('unregister shortcut failed', e));
-      }
-    };
-  }, []);
-
   // Auto-dispatch translation for newly-final English transcripts
   useEffect(() => {
     transcripts.forEach((t, i) => {
@@ -161,14 +149,6 @@ export function MeetingView({ onEnd }: Props) {
     onEnd();
   };
 
-  const handleTrigger = async () => {
-    try {
-      await triggerSuggestion();
-    } catch (e) {
-      console.error('trigger_suggestion failed', e);
-    }
-  };
-
   const formatTime = (ts: number) => {
     const d = new Date(ts);
     return `${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}:${d.getSeconds().toString().padStart(2, '0')}`;
@@ -181,10 +161,15 @@ export function MeetingView({ onEnd }: Props) {
         <div className="text-xs text-gray-500">{transcripts.length} 条转写 · {suggestions.length} 条建议</div>
         <div className="flex-1" />
         <button
-          onClick={handleTrigger}
-          className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded"
+          onClick={() => setSuggestEnabled(!suggestEnabled)}
+          className={`px-3 py-1.5 text-white text-sm font-medium rounded transition ${
+            suggestEnabled
+              ? 'bg-blue-600 hover:bg-blue-700'
+              : 'bg-gray-400 hover:bg-gray-500'
+          }`}
+          title={suggestEnabled ? 'AI 建议开启中 (点击关闭)' : 'AI 建议已关闭 (点击开启)'}
         >
-          ⌘⇧M 召唤建议
+          AI 建议: {suggestEnabled ? '开' : '关'}
         </button>
         <button
           onClick={handleStop}
@@ -249,7 +234,7 @@ export function MeetingView({ onEnd }: Props) {
         <span>建议 {suggestions.length} 条</span>
         {error && <span className="text-red-600">⚠ {error}</span>}
         <div className="flex-1" />
-        <span>⌘⇧M 召唤建议</span>
+        <span>AI 建议 {suggestEnabled ? '开启' : '已关闭'}</span>
       </footer>
     </div>
   );

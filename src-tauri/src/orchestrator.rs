@@ -226,6 +226,34 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Pause auto-suggestion timer. Engine + buffer remain so resume preserves context.
+    pub async fn pause_suggestions(&self) -> Result<()> {
+        let mut state = self.inner.lock().await;
+        if let Some(h) = state.suggestion_timer.take() {
+            h.abort();
+            tracing::info!("suggestion timer paused");
+        }
+        Ok(())
+    }
+
+    /// Resume auto-suggestion timer. No-op if no active meeting or already running.
+    pub async fn resume_suggestions(&self, app: tauri::AppHandle) -> Result<()> {
+        let mut state = self.inner.lock().await;
+        if state.suggestion_timer.is_some() {
+            return Ok(()); // already running
+        }
+        let Some(engine) = state.suggestion_engine.clone() else {
+            return Ok(()); // no active meeting
+        };
+        let timer_handle = engine.start_auto_timer(
+            Duration::from_secs(AUTO_SUGGESTION_INTERVAL_SECS),
+            app,
+        );
+        state.suggestion_timer = Some(timer_handle);
+        tracing::info!("suggestion timer resumed");
+        Ok(())
+    }
+
     /// Manually trigger a suggestion. Returns Err if no meeting is active.
     pub async fn trigger_suggestion(&self, app: tauri::AppHandle) -> Result<()> {
         let engine = {
