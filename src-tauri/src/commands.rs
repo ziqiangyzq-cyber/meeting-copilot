@@ -1,5 +1,6 @@
 use crate::config::Config;
 use crate::llm::Message;
+use crate::minutes::generator::MinutesGenerator;
 use crate::orchestrator::Orchestrator;
 use crate::rag::ingest;
 use rusqlite::params;
@@ -169,6 +170,42 @@ pub async fn translate_text(
         .map_err(|e| format!("translate failed: {e}"))?;
 
     Ok(result.trim().to_string())
+}
+
+#[tauri::command]
+pub async fn generate_minutes(
+    meeting_id: String,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> std::result::Result<String, String> {
+    let db = state.orchestrator.db();
+    let llm = state.orchestrator.llm();
+    let generator = MinutesGenerator::new(db, llm);
+
+    let (tx, mut rx) = mpsc::channel::<String>(256);
+
+    // Spawn token forwarder
+    let app_for_recv = app.clone();
+    let recv_task = tokio::spawn(async move {
+        while let Some(tok) = rx.recv().await {
+            let _ = app_for_recv.emit("minutes_token", tok);
+        }
+    });
+
+    let result = generator.generate(&meeting_id, tx).await;
+    let _ = recv_task.await;
+
+    match result {
+        Ok(markdown) => {
+            let _ = app.emit("minutes_complete", &markdown);
+            Ok(markdown)
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            let _ = app.emit("minutes_error", &msg);
+            Err(msg)
+        }
+    }
 }
 
 #[tauri::command]

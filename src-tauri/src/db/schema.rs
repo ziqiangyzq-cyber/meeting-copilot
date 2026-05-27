@@ -55,9 +55,20 @@ const DDL: &[&str] = &[
         user_action TEXT,
         FOREIGN KEY (meeting_id) REFERENCES meetings(id)
     )",
+    "CREATE TABLE IF NOT EXISTS minutes (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        meeting_id TEXT NOT NULL,
+        version INTEGER NOT NULL,
+        markdown TEXT NOT NULL,
+        generated_at INTEGER NOT NULL,
+        model_used TEXT,
+        tokens_used INTEGER,
+        FOREIGN KEY (meeting_id) REFERENCES meetings(id)
+    )",
     "CREATE INDEX IF NOT EXISTS idx_chunks_meeting ON chunks(meeting_id)",
     "CREATE INDEX IF NOT EXISTS idx_transcripts_meeting ON transcripts(meeting_id)",
     "CREATE INDEX IF NOT EXISTS idx_suggestions_meeting ON suggestions(meeting_id)",
+    "CREATE INDEX IF NOT EXISTS idx_minutes_meeting ON minutes(meeting_id)",
 ];
 
 pub fn init(conn: &Connection) -> Result<()> {
