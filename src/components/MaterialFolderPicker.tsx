@@ -27,6 +27,7 @@ export function MaterialFolderPicker({ meetingId, onAllReady }: Props) {
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let unmounted = false;
     onMaterialProgress((evt: MaterialProgressEvent) => {
       setFiles((prev) =>
         prev.map((f) => {
@@ -37,8 +38,14 @@ export function MaterialFolderPicker({ meetingId, onAllReady }: Props) {
           return f;
         })
       );
-    }).then((fn) => { unlisten = fn; });
-    return () => unlisten?.();
+    }).then((fn) => {
+      if (unmounted) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
   }, []);
 
   const handleSelectFolder = async () => {

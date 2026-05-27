@@ -57,6 +57,7 @@ export function MeetingView({ onEnd }: Props) {
   // transcript subscription
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let unmounted = false;
     onTranscript((evt) => {
       setTranscripts((prev) => {
         const last = prev[prev.length - 1];
@@ -67,8 +68,14 @@ export function MeetingView({ onEnd }: Props) {
         }
         return [...prev, evt];
       });
-    }).then((fn) => { unlisten = fn; });
-    return () => unlisten?.();
+    }).then((fn) => {
+      if (unmounted) fn();
+      else unlisten = fn;
+    });
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
   }, []);
 
   // suggestion subscription
@@ -76,11 +83,15 @@ export function MeetingView({ onEnd }: Props) {
     let unlistenToken: (() => void) | undefined;
     let unlistenDone: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
+    let unmounted = false;
 
     onSuggestionToken((token) => {
       accumRef.current += token;
       setCurrentStream(accumRef.current);
-    }).then((fn) => { unlistenToken = fn; });
+    }).then((fn) => {
+      if (unmounted) fn();
+      else unlistenToken = fn;
+    });
 
     onSuggestionComplete(() => {
       if (accumRef.current.trim()) {
@@ -89,15 +100,22 @@ export function MeetingView({ onEnd }: Props) {
       }
       accumRef.current = '';
       setCurrentStream('');
-    }).then((fn) => { unlistenDone = fn; });
+    }).then((fn) => {
+      if (unmounted) fn();
+      else unlistenDone = fn;
+    });
 
     onSuggestionError((err) => {
       setError(err);
       accumRef.current = '';
       setCurrentStream('');
-    }).then((fn) => { unlistenError = fn; });
+    }).then((fn) => {
+      if (unmounted) fn();
+      else unlistenError = fn;
+    });
 
     return () => {
+      unmounted = true;
       unlistenToken?.();
       unlistenDone?.();
       unlistenError?.();

@@ -38,6 +38,7 @@ export function FileDropzone({ meetingId, onAllReady }: Props) {
   // Listen to material_progress events
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let unmounted = false;
     onMaterialProgress((evt: MaterialProgressEvent) => {
       setFiles((prev) =>
         prev.map((f) => {
@@ -50,14 +51,19 @@ export function FileDropzone({ meetingId, onAllReady }: Props) {
         })
       );
     }).then((fn) => {
-      unlisten = fn;
+      if (unmounted) fn();
+      else unlisten = fn;
     });
-    return () => unlisten?.();
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
   }, []);
 
   // Tauri native drag-drop: provides real filesystem paths
   useEffect(() => {
     let unlisten: (() => void) | undefined;
+    let unmounted = false;
     getCurrentWebview()
       .onDragDropEvent((event) => {
         if (event.payload.type === 'enter' || event.payload.type === 'over') {
@@ -73,9 +79,13 @@ export function FileDropzone({ meetingId, onAllReady }: Props) {
         }
       })
       .then((fn) => {
-        unlisten = fn;
+        if (unmounted) fn();
+        else unlisten = fn;
       });
-    return () => unlisten?.();
+    return () => {
+      unmounted = true;
+      unlisten?.();
+    };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [meetingId]);
 
