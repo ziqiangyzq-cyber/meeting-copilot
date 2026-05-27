@@ -37,3 +37,6 @@ dist-ssr
 
 # OMC framework local state
 .omc/
+
+# bundled Swift binary (regenerated at build time)
+src-tauri/resources/

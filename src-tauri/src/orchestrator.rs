@@ -93,7 +93,7 @@ impl Orchestrator {
         }
 
         // 1. Spawn AudioHelper
-        let bin_path = locate_helper_binary()?;
+        let bin_path = locate_helper_binary(&app)?;
         let mut helper = HelperProc::spawn(bin_path).await?;
         helper.send_cmd("start").await?;
 
@@ -296,13 +296,28 @@ impl Orchestrator {
     }
 }
 
-fn locate_helper_binary() -> Result<PathBuf> {
+fn locate_helper_binary(app: &tauri::AppHandle) -> Result<PathBuf> {
+    use tauri::Manager;
+
     // Priority:
     // 1. AUDIO_HELPER_PATH env (override for dev / debugging)
-    // 2. Dev paths relative to where the Tauri binary runs
+    // 2. Production: Tauri app resource dir (.app/Contents/Resources/...)
+    // 3. Dev paths relative to where the Tauri binary runs
 
     if let Ok(p) = std::env::var("AUDIO_HELPER_PATH") {
         return Ok(PathBuf::from(p));
+    }
+
+    if let Ok(resource_dir) = app.path().resource_dir() {
+        let bundled = resource_dir.join("resources").join("AudioHelper");
+        if bundled.exists() {
+            return Ok(bundled);
+        }
+        // Some Tauri layouts flatten resources (no /resources/ prefix)
+        let bundled_alt = resource_dir.join("AudioHelper");
+        if bundled_alt.exists() {
+            return Ok(bundled_alt);
+        }
     }
 
     let candidates = [
@@ -317,6 +332,6 @@ fn locate_helper_binary() -> Result<PathBuf> {
     }
 
     Err(AppError::AudioHelper(
-        "AudioHelper binary not found; set AUDIO_HELPER_PATH env or build audio-helper first (cd audio-helper && swift build -c release)".into(),
+        "AudioHelper binary not found; build with `cd audio-helper && swift build -c release` or `pnpm tauri build`".into(),
     ))
 }
