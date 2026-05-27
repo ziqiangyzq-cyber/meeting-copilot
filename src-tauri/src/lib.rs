@@ -12,10 +12,10 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, generate_minutes, get_api_key_status, get_meeting_detail, ingest_material,
-    list_meetings, list_supported_files, restart_mic, save_api_keys, set_suggestions_enabled,
-    start_meeting, stop_meeting, test_aliyun_key, test_minimax_key, translate_text,
-    trigger_suggestion, update_focus_points, AppState,
+    create_meeting, delete_meeting, generate_minutes, get_api_key_status, get_meeting_detail,
+    ingest_material, list_meetings, list_supported_files, restart_mic, save_api_keys,
+    set_suggestions_enabled, start_meeting, stop_meeting, test_aliyun_key, test_minimax_key,
+    translate_text, trigger_suggestion, update_focus_points, AppState,
 };
 use config::Config;
 use db::Db;
@@ -83,6 +83,7 @@ pub fn run() {
             generate_minutes,
             list_meetings,
             get_meeting_detail,
+            delete_meeting,
             update_focus_points,
             get_api_key_status,
             save_api_keys,

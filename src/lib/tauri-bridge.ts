@@ -181,6 +181,10 @@ export async function getMeetingDetail(meetingId: string): Promise<MeetingDetail
   return await invoke<MeetingDetail>('get_meeting_detail', { meetingId });
 }
 
+export async function deleteMeeting(meetingId: string): Promise<void> {
+  await invoke('delete_meeting', { meetingId });
+}
+
 // --- API Key management (Plan 4 Phase A) ---
 
 export interface KeyStatus {

@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { listMeetings, MeetingSummary } from '../lib/tauri-bridge';
+import { deleteMeeting, listMeetings, MeetingSummary } from '../lib/tauri-bridge';
 
 interface Props {
   onSelect: (meetingId: string) => void;
@@ -10,6 +10,7 @@ export function HistoryList({ onSelect, onBack }: Props) {
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,6 +42,19 @@ export function HistoryList({ onSelect, onBack }: Props) {
       .getMinutes()
       .toString()
       .padStart(2, '0')}`;
+  };
+
+  const handleDelete = async (id: string, name: string) => {
+    if (!confirm(`确定删除会议 "${name}"?\n\n会删除全部转写、建议、资料、纪要,不可恢复。`)) return;
+    setDeleting(id);
+    try {
+      await deleteMeeting(id);
+      setMeetings((prev) => prev.filter((m) => m.id !== id));
+    } catch (e) {
+      alert(`删除失败: ${e}`);
+    } finally {
+      setDeleting(null);
+    }
   };
 
   const fmtDuration = (ms: number | null) => {
@@ -80,10 +94,10 @@ export function HistoryList({ onSelect, onBack }: Props) {
       {!loading && meetings.length > 0 && (
         <ul className="space-y-2">
           {meetings.map((m) => (
-            <li key={m.id}>
+            <li key={m.id} className="flex items-center gap-2">
               <button
                 onClick={() => onSelect(m.id)}
-                className="w-full text-left px-4 py-3 bg-white border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-400 transition"
+                className="flex-1 text-left px-4 py-3 bg-white border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-400 transition"
               >
                 <div className="flex items-baseline gap-3">
                   <span className="font-bold text-gray-900">{m.name}</span>
@@ -102,6 +116,14 @@ export function HistoryList({ onSelect, onBack }: Props) {
                     {m.transcript_count} 条转写 · {m.suggestion_count} 条建议
                   </span>
                 </div>
+              </button>
+              <button
+                onClick={() => handleDelete(m.id, m.name)}
+                disabled={deleting === m.id}
+                className="shrink-0 px-3 py-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded disabled:opacity-50"
+                title="删除会议"
+              >
+                🗑️
               </button>
             </li>
           ))}

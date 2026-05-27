@@ -4,6 +4,7 @@ import remarkGfm from 'remark-gfm';
 import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import {
+  deleteMeeting,
   getMeetingDetail,
   MeetingDetail,
   generateMinutes,
@@ -27,6 +28,7 @@ export function HistoryDetail({ meetingId, onBack }: Props) {
   const [regenError, setRegenError] = useState<string | null>(null);
   const [streamMd, setStreamMd] = useState<string>('');
   const [copyConfirm, setCopyConfirm] = useState(false);
+  const [deletingMeeting, setDeletingMeeting] = useState(false);
   const accumRef = useRef<string>('');
 
   // Load detail
@@ -120,6 +122,19 @@ export function HistoryDetail({ meetingId, onBack }: Props) {
     }
   };
 
+  const handleDeleteMeeting = async () => {
+    if (!detail) return;
+    if (!confirm(`确定删除会议 "${detail.meeting.name}"?\n\n会删除全部转写、建议、资料、纪要,不可恢复。`)) return;
+    setDeletingMeeting(true);
+    try {
+      await deleteMeeting(meetingId);
+      onBack();
+    } catch (e) {
+      alert(`删除失败: ${e}`);
+      setDeletingMeeting(false);
+    }
+  };
+
   const handleSave = async () => {
     if (!detail?.latest_minutes_md) return;
     const safeName = (detail.meeting.name || 'meeting').replace(/[/\\?*:|"<>]/g, '_');
@@ -200,6 +215,14 @@ export function HistoryDetail({ meetingId, onBack }: Props) {
               {regenerating ? '生成中...' : '重新生成纪要'}
             </button>
           )}
+          <button
+            onClick={handleDeleteMeeting}
+            disabled={deletingMeeting}
+            className="px-3 py-1.5 bg-red-50 hover:bg-red-100 text-red-700 text-sm rounded border border-red-200 disabled:opacity-50"
+            title="删除整场会议"
+          >
+            {deletingMeeting ? '删除中...' : '🗑️ 删除'}
+          </button>
         </div>
         <div className="text-xs text-gray-500 mt-1 flex gap-3 flex-wrap">
           {detail.meeting.project_ref && <span>项目: {detail.meeting.project_ref}</span>}

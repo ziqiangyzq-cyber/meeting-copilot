@@ -353,6 +353,51 @@ pub async fn list_meetings(
 }
 
 #[tauri::command]
+pub async fn delete_meeting(
+    meeting_id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.orchestrator.db();
+    let conn = db.conn();
+
+    conn.execute("BEGIN TRANSACTION", []).map_err(|e| e.to_string())?;
+
+    // 1. Delete vector rows FIRST (need chunks.id to find rowids before chunks rows go away)
+    let vec_delete_sql = "
+        DELETE FROM chunks_vec
+        WHERE rowid IN (SELECT id FROM chunks WHERE meeting_id = ?)
+    ";
+    if let Err(e) = conn.execute(vec_delete_sql, [&meeting_id]) {
+        let _ = conn.execute("ROLLBACK", []);
+        return Err(format!("delete chunks_vec: {e}"));
+    }
+
+    // 2. Delete from child tables
+    for sql in [
+        "DELETE FROM chunks WHERE meeting_id = ?",
+        "DELETE FROM materials WHERE meeting_id = ?",
+        "DELETE FROM transcripts WHERE meeting_id = ?",
+        "DELETE FROM suggestions WHERE meeting_id = ?",
+        "DELETE FROM minutes WHERE meeting_id = ?",
+    ] {
+        if let Err(e) = conn.execute(sql, [&meeting_id]) {
+            let _ = conn.execute("ROLLBACK", []);
+            return Err(format!("delete from related table: {e}"));
+        }
+    }
+
+    // 3. Delete the meeting row itself
+    if let Err(e) = conn.execute("DELETE FROM meetings WHERE id = ?", [&meeting_id]) {
+        let _ = conn.execute("ROLLBACK", []);
+        return Err(format!("delete meeting: {e}"));
+    }
+
+    conn.execute("COMMIT", []).map_err(|e| e.to_string())?;
+    tracing::info!("deleted meeting {meeting_id} (and all related rows)");
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn get_meeting_detail(
     meeting_id: String,
     state: tauri::State<'_, AppState>,
