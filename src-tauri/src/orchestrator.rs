@@ -301,30 +301,43 @@ fn locate_helper_binary(app: &tauri::AppHandle) -> Result<PathBuf> {
 
     // Priority:
     // 1. AUDIO_HELPER_PATH env (override for dev / debugging)
-    // 2. Production: Tauri app resource dir (.app/Contents/Resources/...)
+    // 2. Production: Tauri app resource dir (.app/Contents/Resources/... or %INSTALLDIR%\resources\)
     // 3. Dev paths relative to where the Tauri binary runs
+
+    let binary_name = if cfg!(target_os = "windows") {
+        "AudioHelper.exe"
+    } else {
+        "AudioHelper"
+    };
 
     if let Ok(p) = std::env::var("AUDIO_HELPER_PATH") {
         return Ok(PathBuf::from(p));
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        let bundled = resource_dir.join("resources").join("AudioHelper");
+        let bundled = resource_dir.join("resources").join(binary_name);
         if bundled.exists() {
             return Ok(bundled);
         }
         // Some Tauri layouts flatten resources (no /resources/ prefix)
-        let bundled_alt = resource_dir.join("AudioHelper");
+        let bundled_alt = resource_dir.join(binary_name);
         if bundled_alt.exists() {
             return Ok(bundled_alt);
         }
     }
 
-    let candidates = [
-        "audio-helper/.build/release/AudioHelper",
-        "../audio-helper/.build/release/AudioHelper",
-    ];
-    for path in candidates {
+    let dev_candidates: &[&str] = if cfg!(target_os = "windows") {
+        &[
+            "audio-helper-win/target/release/AudioHelper.exe",
+            "../audio-helper-win/target/release/AudioHelper.exe",
+        ]
+    } else {
+        &[
+            "audio-helper/.build/release/AudioHelper",
+            "../audio-helper/.build/release/AudioHelper",
+        ]
+    };
+    for path in dev_candidates {
         let p = PathBuf::from(path);
         if p.exists() {
             return Ok(p);
@@ -332,6 +345,6 @@ fn locate_helper_binary(app: &tauri::AppHandle) -> Result<PathBuf> {
     }
 
     Err(AppError::AudioHelper(
-        "AudioHelper binary not found; build with `cd audio-helper && swift build -c release` or `pnpm tauri build`".into(),
+        format!("AudioHelper binary not found ({binary_name}); build with `pnpm tauri build` or the platform-specific dev build (macOS: `cd audio-helper && swift build -c release`, Windows: `cd audio-helper-win && cargo build --release`)")
     ))
 }

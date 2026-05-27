@@ -18,6 +18,9 @@ audio-helper/.build/
 audio-helper/.swiftpm/
 audio-helper/Package.resolved
 
+# Rust Windows helper build outputs
+audio-helper-win/target/
+
 # Secrets (will use Keychain instead of .env in Phase 2, but guard against accidents)
 .env
 .env.local

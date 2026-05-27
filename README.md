@@ -106,6 +106,36 @@ pnpm tauri build
 - 复制到 src-tauri/resources/ 让 Tauri bundle 进 .app
 - Tauri 生成 .app + .dmg
 
+### Windows 开发 / 打包
+
+**前提**:
+- Windows 10 1809+
+- Rust toolchain (1.75+)
+- MSVC build tools (Visual Studio 2022 Build Tools — Desktop C++ workload)
+- Node 22+ + pnpm 11+
+
+**Dev**:
+
+```pwsh
+cd meeting-copilot
+pnpm install
+cd audio-helper-win
+cargo build --release
+cd ..
+$env:ALIYUN_API_KEY = "sk-..."
+$env:MINIMAX_API_KEY = "sk-cp-..."
+pnpm tauri dev
+```
+
+**打包 .msi**:
+
+```pwsh
+pnpm tauri build
+# 输出在: src-tauri\target\release\bundle\msi\Meeting Copilot_0.1.0_x64_en-US.msi
+```
+
+**注意**:Windows 版从未在真实 Windows 机器上测过(代码 from a Mac dev box)。首次跑可能有 1-2 个编译错误,**多半在 `audio-helper-win/src/main.rs` 的 WAVE_FORMAT_EXTENSIBLE 处理 或 `windows` crate API 签名差异**(GUID 检测被简化了)。
+
 ### 项目结构
 
 ```

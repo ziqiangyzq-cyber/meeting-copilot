@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "pnpm dev",
     "devUrl": "http://localhost:1420",
-    "beforeBuildCommand": "pnpm build && bash src-tauri/scripts/bundle-audio-helper.sh",
+    "beforeBuildCommand": "pnpm build && node src-tauri/scripts/bundle-helper.mjs",
     "frontendDist": "../dist"
   },
   "app": {
@@ -27,7 +27,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "resources": ["resources/AudioHelper"],
+    "resources": ["resources/*"],
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
