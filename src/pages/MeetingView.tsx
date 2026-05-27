@@ -9,6 +9,7 @@ import {
   stopMeeting,
   translateText,
   updateFocusPoints,
+  restartMic,
 } from '../lib/tauri-bridge';
 
 interface CompletedSuggestion {
@@ -202,6 +203,15 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
         <h1 className="text-lg font-bold">会议进行中</h1>
         <div className="text-xs text-gray-500">{transcripts.length} 条转写 · {suggestions.length} 条建议</div>
         <div className="flex-1" />
+        <button
+          onClick={async () => {
+            try { await restartMic(); } catch (e) { console.error(e); }
+          }}
+          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+          title="切换麦克风设备后如果没自动生效,点这个手动重连"
+        >
+          🎙️ 重连麦
+        </button>
         <button
           onClick={() => setSuggestEnabled(!suggestEnabled)}
           className={`px-3 py-1.5 text-white text-sm font-medium rounded transition ${

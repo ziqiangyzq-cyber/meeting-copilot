@@ -32,6 +32,8 @@ func handleCommand(_ cmd: Command) async {
         exit(0)
     case "ping":
         logInfo("pong")
+    case "restart_mic":
+        micCapture.manualRestart()
     default:
         logError("unknown command: \(cmd.cmd)")
     }

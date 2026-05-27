@@ -277,6 +277,19 @@ impl Orchestrator {
         Ok(())
     }
 
+    /// Manually trigger a mic restart in AudioHelper (fallback for when
+    /// AVAudioEngineConfigurationChange doesn't fire on device hot-swap).
+    pub async fn restart_mic(&self) -> Result<()> {
+        let mut state = self.inner.lock().await;
+        if let Some(helper) = state.helper.as_mut() {
+            helper.send_cmd("restart_mic").await?;
+            tracing::info!("sent restart_mic to AudioHelper");
+            Ok(())
+        } else {
+            Err(AppError::AudioHelper("no active meeting".into()))
+        }
+    }
+
     /// Manually trigger a suggestion. Returns Err if no meeting is active.
     pub async fn trigger_suggestion(&self, app: tauri::AppHandle) -> Result<()> {
         let engine = {

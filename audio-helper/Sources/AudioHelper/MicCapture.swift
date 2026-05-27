@@ -2,10 +2,11 @@ import Foundation
 import AVFoundation
 
 class MicCapture {
-    private let engine = AVAudioEngine()
+    private var engine = AVAudioEngine()  // var: gets replaced on hot-swap
     private let converter: PCMConverter
     private var isRunning = false
     private var notifObserver: NSObjectProtocol?
+    private var restartScheduled = false
 
     init(converter: PCMConverter) {
         self.converter = converter
@@ -13,14 +14,15 @@ class MicCapture {
 
     func start() throws {
         try installTapAndStart()
-        // Listen for device / config changes (AirPods plug/unplug, default mic change, etc.)
-        // When fired, tear down the current tap + engine and re-setup against the new default device.
+        // Listen for ANY audio engine config change in this process (object: nil).
+        // We only have one engine here; using nil keeps the subscription valid
+        // even after we replace `self.engine` on hot-swap.
         notifObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
-            object: engine,
+            object: nil,
             queue: nil
         ) { [weak self] _ in
-            self?.handleConfigChange()
+            self?.scheduleRestart()
         }
         isRunning = true
     }
@@ -37,20 +39,40 @@ class MicCapture {
         logInfo("mic capture started, input format: \(inputFormat)")
     }
 
-    private func handleConfigChange() {
-        logInfo("audio configuration changed — restarting mic capture on new default device")
-        // Remove old tap + stop engine
+    /// Coalesce rapid-fire config changes (macOS sometimes fires 2-3 in quick succession during a plug event).
+    private func scheduleRestart() {
+        if restartScheduled { return }
+        restartScheduled = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            self?.restartScheduled = false
+            self?.performRestart()
+        }
+    }
+
+    private func performRestart() {
+        guard isRunning else { return }
+        logInfo("audio config changed — recreating engine on new default device")
+
+        // Tear down old engine completely
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
-        // Small delay so the OS finishes the device switch transition
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
-            guard let self = self, self.isRunning else { return }
-            do {
-                try self.installTapAndStart()
-            } catch {
-                logError("mic restart after config change failed: \(error)")
-            }
+        engine.reset()
+
+        // Replace with a fresh instance so internal state is clean
+        engine = AVAudioEngine()
+
+        do {
+            try installTapAndStart()
+        } catch {
+            logError("mic restart after device change failed: \(error)")
         }
+    }
+
+    /// Manual trigger — for when the auto observer fails to detect a change
+    /// (rare on macOS but worth having as a fallback).
+    func manualRestart() {
+        logInfo("manual mic restart requested")
+        performRestart()
     }
 
     func stop() {
@@ -61,6 +83,7 @@ class MicCapture {
         if isRunning {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
+            engine.reset()
             isRunning = false
             logInfo("mic capture stopped")
         }
