@@ -9,6 +9,11 @@ class MicCapture {
     private var restartScheduled = false
     private var coreAudioListenerInstalled = false
 
+    /// Serial queue for all mic operations. We can't use DispatchQueue.main because
+    /// main.swift blocks the main thread on a semaphore (keeps the process alive
+    /// while reading stdin), so main queue blocks never execute.
+    private let micQueue = DispatchQueue(label: "meeting-copilot.mic-control")
+
     init(converter: PCMConverter) {
         self.converter = converter
     }
@@ -48,27 +53,31 @@ class MicCapture {
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
+        // Use OUR serial queue, not main — main thread is permanently blocked
+        // on a semaphore in main.swift, so DispatchQueue.main blocks never fire.
         let status = AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject),
             &address,
-            DispatchQueue.main
+            micQueue
         ) { [weak self] _, _ in
-            logInfo("core audio default input device changed")
+            logInfo("core audio: default input device changed")
             self?.scheduleRestart()
         }
         if status == noErr {
             coreAudioListenerInstalled = true
-            logInfo("installed core audio default-input listener")
+            logInfo("installed core audio default-input listener (on micQueue)")
         } else {
             logError("failed to install core audio listener: OSStatus=\(status)")
         }
     }
 
-    /// Coalesce rapid-fire change events (macOS often fires 2-3 per real plug event).
+    /// Coalesce rapid-fire change events.
     private func scheduleRestart() {
+        // Caller is already on micQueue (or being routed to it via manualRestart's dispatch),
+        // so direct field access is safe.
         if restartScheduled { return }
         restartScheduled = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+        micQueue.asyncAfter(deadline: .now() + 0.3) { [weak self] in
             self?.restartScheduled = false
             self?.performRestart()
         }
@@ -83,7 +92,7 @@ class MicCapture {
         engine.stop()
         engine.reset()
 
-        // New engine instance ensures clean state
+        // Fresh instance ensures clean state
         engine = AVAudioEngine()
 
         do {
@@ -93,23 +102,26 @@ class MicCapture {
         }
     }
 
-    /// Manual trigger — fallback for when the core-audio observer somehow misses.
+    /// Manual trigger — invoked from stdin handler (which runs on a global queue).
+    /// Hop to micQueue so we don't race with the listener callback or scheduled restarts.
     func manualRestart() {
         logInfo("manual mic restart requested")
-        performRestart()
+        micQueue.async { [weak self] in
+            self?.performRestart()
+        }
     }
 
     func stop() {
-        // Note: the core-audio listener block is intentionally NOT removed.
-        // The process will exit shortly after stop() anyway, and removing a Block
-        // listener requires holding the original Block reference which is awkward.
-        // Process exit cleans it up.
-        if isRunning {
-            engine.inputNode.removeTap(onBus: 0)
-            engine.stop()
-            engine.reset()
-            isRunning = false
-            logInfo("mic capture stopped")
+        // The Core Audio listener block stays registered; the process is about to exit
+        // anyway and removing a Block listener requires the original Block ref.
+        micQueue.sync {
+            if isRunning {
+                engine.inputNode.removeTap(onBus: 0)
+                engine.stop()
+                engine.reset()
+                isRunning = false
+                logInfo("mic capture stopped")
+            }
         }
     }
 
@@ -147,8 +159,6 @@ class MicCapture {
     }
 
     private func setInputDevice(on engine: AVAudioEngine, deviceID: AudioDeviceID) {
-        // engine.inputNode.audioUnit returns AudioUnit? — must touch inputNode at least once
-        // to instantiate the underlying AUHAL.
         guard let audioUnit = engine.inputNode.audioUnit else {
             logError("inputNode.audioUnit is nil — cannot set device")
             return
