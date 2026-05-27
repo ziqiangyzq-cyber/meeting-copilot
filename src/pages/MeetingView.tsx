@@ -1,11 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import {
-  isPermissionGranted,
-  requestPermission,
-  sendNotification,
-} from '@tauri-apps/plugin-notification';
-import {
   TranscriptEvent,
   onTranscript,
   onSuggestionToken,
@@ -40,37 +35,9 @@ export function MeetingView({ onEnd }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [translations, setTranslations] = useState<Record<number, string>>({});
   const [translating, setTranslating] = useState<Set<number>>(new Set());
-  const [notifyEnabled, setNotifyEnabled] = useState<boolean>(() => {
-    const stored = localStorage.getItem('notifyEnabled');
-    return stored === null ? true : stored === 'true';
-  });
   const accumRef = useRef<string>('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const translationDispatched = useRef<Set<number>>(new Set());
-
-  // Persist notify toggle
-  useEffect(() => {
-    localStorage.setItem('notifyEnabled', String(notifyEnabled));
-  }, [notifyEnabled]);
-
-  // Request macOS notification permission when enabled
-  useEffect(() => {
-    if (!notifyEnabled) return;
-    (async () => {
-      try {
-        let granted = await isPermissionGranted();
-        if (!granted) {
-          const perm = await requestPermission();
-          granted = perm === 'granted';
-        }
-        if (!granted) {
-          setNotifyEnabled(false);
-        }
-      } catch (e) {
-        console.error('notification permission check failed', e);
-      }
-    })();
-  }, [notifyEnabled]);
 
   // transcript subscription
   useEffect(() => {
@@ -104,18 +71,6 @@ export function MeetingView({ onEnd }: Props) {
       if (accumRef.current.trim()) {
         const text = accumRef.current;
         setSuggestions((prev) => [{ text, timestamp: Date.now() }, ...prev]);
-        // Read from localStorage to avoid stale closure
-        const enabled = localStorage.getItem('notifyEnabled') !== 'false';
-        if (enabled) {
-          try {
-            sendNotification({
-              title: '会议助理 — 新建议',
-              body: text.slice(0, 120),
-            });
-          } catch (e) {
-            console.error('sendNotification failed', e);
-          }
-        }
       }
       accumRef.current = '';
       setCurrentStream('');
@@ -225,13 +180,6 @@ export function MeetingView({ onEnd }: Props) {
         <h1 className="text-lg font-bold">会议进行中</h1>
         <div className="text-xs text-gray-500">{transcripts.length} 条转写 · {suggestions.length} 条建议</div>
         <div className="flex-1" />
-        <button
-          onClick={() => setNotifyEnabled(!notifyEnabled)}
-          className="text-lg hover:opacity-80 px-2"
-          title={notifyEnabled ? '通知开 (点击关闭)' : '通知关 (点击开启)'}
-        >
-          {notifyEnabled ? '🔔' : '🔕'}
-        </button>
         <button
           onClick={handleTrigger}
           className="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white text-sm rounded"
