@@ -1,14 +1,39 @@
 use crate::config::Config;
+use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
 use crate::llm::Message;
 use crate::minutes::generator::MinutesGenerator;
 use crate::orchestrator::Orchestrator;
 use crate::rag::ingest;
 use rusqlite::params;
+use serde::Serialize;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
 use tokio::sync::mpsc;
 use uuid::Uuid;
+
+#[derive(Serialize)]
+pub struct MeetingSummary {
+    pub id: String,
+    pub name: String,
+    pub project_ref: Option<String>,
+    pub purpose: Option<String>,
+    pub started_at: i64,
+    pub ended_at: Option<i64>,
+    pub duration_ms: Option<i64>,
+    pub transcript_count: i64,
+    pub suggestion_count: i64,
+    pub has_minutes: bool,
+}
+
+#[derive(Serialize)]
+pub struct MeetingDetail {
+    pub meeting: Meeting,
+    pub transcripts: Vec<TranscriptRow>,
+    pub suggestions: Vec<SuggestionRow>,
+    pub latest_minutes_md: Option<String>,
+    pub latest_minutes_version: Option<i64>,
+}
 
 pub struct AppState {
     pub orchestrator: Arc<Orchestrator>,
@@ -236,4 +261,148 @@ pub async fn list_supported_files(folder: String) -> std::result::Result<Vec<Str
     }
     files.sort();
     Ok(files)
+}
+
+#[tauri::command]
+pub async fn list_meetings(
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<Vec<MeetingSummary>, String> {
+    let db = state.orchestrator.db();
+    let conn = db.conn();
+    let mut stmt = conn
+        .prepare(
+            "SELECT
+                m.id, m.name, m.project_ref, m.purpose, m.started_at, m.ended_at,
+                (SELECT COUNT(*) FROM transcripts t WHERE t.meeting_id = m.id AND t.is_final = 1) AS transcript_count,
+                (SELECT COUNT(*) FROM suggestions s WHERE s.meeting_id = m.id) AS suggestion_count,
+                (SELECT COUNT(*) FROM minutes mn WHERE mn.meeting_id = m.id) AS minutes_count
+             FROM meetings m
+             ORDER BY m.started_at DESC",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([], |r| {
+            let started_at: i64 = r.get(4)?;
+            let ended_at: Option<i64> = r.get(5)?;
+            let duration_ms = ended_at.map(|e| e - started_at);
+            let minutes_count: i64 = r.get(8)?;
+            Ok(MeetingSummary {
+                id: r.get(0)?,
+                name: r.get(1)?,
+                project_ref: r.get(2)?,
+                purpose: r.get(3)?,
+                started_at,
+                ended_at,
+                duration_ms,
+                transcript_count: r.get(6)?,
+                suggestion_count: r.get(7)?,
+                has_minutes: minutes_count > 0,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut result = Vec::new();
+    for row in rows {
+        result.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(result)
+}
+
+#[tauri::command]
+pub async fn get_meeting_detail(
+    meeting_id: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<MeetingDetail, String> {
+    let db = state.orchestrator.db();
+    let conn = db.conn();
+
+    let meeting: Meeting = conn
+        .query_row(
+            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata FROM meetings WHERE id = ?",
+            [&meeting_id],
+            |r| {
+                Ok(Meeting {
+                    id: r.get(0)?,
+                    name: r.get(1)?,
+                    project_ref: r.get(2)?,
+                    purpose: r.get(3)?,
+                    participants: r.get(4)?,
+                    started_at: r.get(5)?,
+                    ended_at: r.get(6)?,
+                    audio_path: r.get(7)?,
+                    metadata: r.get(8)?,
+                })
+            },
+        )
+        .map_err(|e| e.to_string())?;
+
+    let transcripts: Vec<TranscriptRow> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, meeting_id, speaker, text, start_ms, end_ms, is_final FROM transcripts WHERE meeting_id = ? AND is_final = 1 ORDER BY start_ms",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([&meeting_id], |r| {
+                Ok(TranscriptRow {
+                    id: r.get(0)?,
+                    meeting_id: r.get(1)?,
+                    speaker: r.get(2)?,
+                    text: r.get(3)?,
+                    start_ms: r.get(4)?,
+                    end_ms: r.get(5)?,
+                    is_final: r.get::<_, i64>(6)? != 0,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut v = Vec::new();
+        for row in rows {
+            v.push(row.map_err(|e| e.to_string())?);
+        }
+        v
+    };
+
+    let suggestions: Vec<SuggestionRow> = {
+        let mut stmt = conn
+            .prepare(
+                "SELECT id, meeting_id, triggered_at, trigger_type, style, content, user_action FROM suggestions WHERE meeting_id = ? ORDER BY triggered_at",
+            )
+            .map_err(|e| e.to_string())?;
+        let rows = stmt
+            .query_map([&meeting_id], |r| {
+                Ok(SuggestionRow {
+                    id: r.get(0)?,
+                    meeting_id: r.get(1)?,
+                    triggered_at: r.get(2)?,
+                    trigger_type: r.get(3)?,
+                    style: r.get(4)?,
+                    content: r.get(5)?,
+                    user_action: r.get(6)?,
+                })
+            })
+            .map_err(|e| e.to_string())?;
+        let mut v = Vec::new();
+        for row in rows {
+            v.push(row.map_err(|e| e.to_string())?);
+        }
+        v
+    };
+
+    let (latest_minutes_md, latest_minutes_version) = conn
+        .query_row(
+            "SELECT markdown, version FROM minutes WHERE meeting_id = ? ORDER BY version DESC LIMIT 1",
+            [&meeting_id],
+            |r| Ok::<(String, i64), rusqlite::Error>((r.get(0)?, r.get(1)?)),
+        )
+        .map(|(md, v)| (Some(md), Some(v)))
+        .unwrap_or((None, None));
+
+    Ok(MeetingDetail {
+        meeting,
+        transcripts,
+        suggestions,
+        latest_minutes_md,
+        latest_minutes_version,
+    })
 }

@@ -11,9 +11,9 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, generate_minutes, ingest_material, list_supported_files,
-    set_suggestions_enabled, start_meeting, stop_meeting, translate_text, trigger_suggestion,
-    AppState,
+    create_meeting, generate_minutes, get_meeting_detail, ingest_material, list_meetings,
+    list_supported_files, set_suggestions_enabled, start_meeting, stop_meeting, translate_text,
+    trigger_suggestion, AppState,
 };
 use config::Config;
 use db::Db;
@@ -74,7 +74,9 @@ pub fn run() {
             set_suggestions_enabled,
             translate_text,
             list_supported_files,
-            generate_minutes
+            generate_minutes,
+            list_meetings,
+            get_meeting_detail
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

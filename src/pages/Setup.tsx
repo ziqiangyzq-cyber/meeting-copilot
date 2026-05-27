@@ -8,8 +8,10 @@ import { MeetingForm } from '../components/MeetingForm';
 import { MaterialFolderPicker } from '../components/MaterialFolderPicker';
 import { MeetingView } from './MeetingView';
 import { MinutesView } from './MinutesView';
+import { HistoryList } from './HistoryList';
+import { HistoryDetail } from './HistoryDetail';
 
-type Stage = 'form' | 'materials' | 'starting' | 'started' | 'minutes';
+type Stage = 'form' | 'materials' | 'starting' | 'started' | 'minutes' | 'history-list' | 'history-detail';
 
 export function Setup() {
   const [stage, setStage] = useState<Stage>('form');
@@ -17,6 +19,7 @@ export function Setup() {
   const [meetingName, setMeetingName] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [materialsReady, setMaterialsReady] = useState(false);
+  const [historyMeetingId, setHistoryMeetingId] = useState<string | null>(null);
 
   const handleCreate = async (draft: MeetingDraft) => {
     setError(null);
@@ -46,6 +49,30 @@ export function Setup() {
       setStage('materials');
     }
   };
+
+  if (stage === 'history-list') {
+    return (
+      <HistoryList
+        onSelect={(id) => {
+          setHistoryMeetingId(id);
+          setStage('history-detail');
+        }}
+        onBack={() => setStage('form')}
+      />
+    );
+  }
+
+  if (stage === 'history-detail' && historyMeetingId) {
+    return (
+      <HistoryDetail
+        meetingId={historyMeetingId}
+        onBack={() => {
+          setStage('history-list');
+          setHistoryMeetingId(null);
+        }}
+      />
+    );
+  }
 
   if (stage === 'minutes' && meetingId) {
     return (
@@ -81,7 +108,15 @@ export function Setup() {
 
       {stage === 'form' && (
         <section>
-          <h2 className="text-lg font-semibold mb-4">1. 新建会议</h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-lg font-semibold">1. 新建会议</h2>
+            <button
+              onClick={() => setStage('history-list')}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+            >
+              📋 历史会议
+            </button>
+          </div>
           <MeetingForm onSubmit={handleCreate} />
         </section>
       )}

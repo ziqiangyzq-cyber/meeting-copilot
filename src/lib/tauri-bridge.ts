@@ -112,3 +112,60 @@ export async function onMinutesComplete(cb: (markdown: string) => void): Promise
 export async function onMinutesError(cb: (err: string) => void): Promise<UnlistenFn> {
   return listen<string>('minutes_error', (e) => cb(e.payload));
 }
+
+// --- History (T3 + T4) ---
+
+export interface MeetingSummary {
+  id: string;
+  name: string;
+  project_ref: string | null;
+  purpose: string | null;
+  started_at: number;
+  ended_at: number | null;
+  duration_ms: number | null;
+  transcript_count: number;
+  suggestion_count: number;
+  has_minutes: boolean;
+}
+
+export interface MeetingDetail {
+  meeting: {
+    id: string;
+    name: string;
+    project_ref: string | null;
+    purpose: string | null;
+    participants: string | null;
+    started_at: number;
+    ended_at: number | null;
+    audio_path: string | null;
+    metadata: string | null;
+  };
+  transcripts: {
+    id: number;
+    meeting_id: string;
+    speaker: string | null;
+    text: string;
+    start_ms: number;
+    end_ms: number;
+    is_final: boolean;
+  }[];
+  suggestions: {
+    id: number;
+    meeting_id: string;
+    triggered_at: number;
+    trigger_type: string | null;
+    style: string | null;
+    content: string;
+    user_action: string | null;
+  }[];
+  latest_minutes_md: string | null;
+  latest_minutes_version: number | null;
+}
+
+export async function listMeetings(): Promise<MeetingSummary[]> {
+  return await invoke<MeetingSummary[]>('list_meetings');
+}
+
+export async function getMeetingDetail(meetingId: string): Promise<MeetingDetail> {
+  return await invoke<MeetingDetail>('get_meeting_detail', { meetingId });
+}
