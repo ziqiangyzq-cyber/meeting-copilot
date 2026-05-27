@@ -15,25 +15,9 @@
       {
         "label": "main",
         "title": "会议助理",
-        "width": 900,
-        "height": 700,
+        "width": 1200,
+        "height": 800,
         "resizable": true
-      },
-      {
-        "label": "floating",
-        "title": "",
-        "url": "/?window=floating",
-        "width": 220,
-        "height": 400,
-        "x": 1400,
-        "y": 300,
-        "transparent": true,
-        "decorations": false,
-        "alwaysOnTop": true,
-        "skipTaskbar": true,
-        "visible": false,
-        "resizable": false,
-        "focus": false
       }
     ],
     "security": {

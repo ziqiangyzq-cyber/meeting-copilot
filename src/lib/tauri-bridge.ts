@@ -65,18 +65,14 @@ export async function onMaterialProgress(
   return listen<MaterialProgressEvent>('material_progress', (e) => callback(e.payload));
 }
 
-export async function showFloating(): Promise<void> {
-  await invoke('show_floating');
-}
-
-export async function hideFloating(): Promise<void> {
-  await invoke('hide_floating');
-}
-
 // --- Suggestion events (T11) ---
 
 export async function triggerSuggestion(): Promise<void> {
   await invoke('trigger_suggestion');
+}
+
+export async function translateText(text: string): Promise<string> {
+  return await invoke<string>('translate_text', { text });
 }
 
 export async function onSuggestionToken(cb: (token: string) => void): Promise<UnlistenFn> {
@@ -93,12 +89,4 @@ export async function onSuggestionError(cb: (err: string) => void): Promise<Unli
 
 export async function listSupportedFiles(folder: string): Promise<string[]> {
   return await invoke<string[]>('list_supported_files', { folder });
-}
-
-export async function collapseFloating(): Promise<void> {
-  await invoke('collapse_floating');
-}
-
-export async function expandFloating(): Promise<void> {
-  await invoke('expand_floating');
 }

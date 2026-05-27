@@ -3,7 +3,6 @@ import {
   MeetingDraft,
   createMeeting,
   startMeetingWithId,
-  showFloating,
 } from '../lib/tauri-bridge';
 import { MeetingForm } from '../components/MeetingForm';
 import { MaterialFolderPicker } from '../components/MaterialFolderPicker';
@@ -36,9 +35,7 @@ export function Setup() {
     try {
       console.log('[Setup] calling startMeetingWithId', meetingId);
       await startMeetingWithId(meetingId);
-      console.log('[Setup] start_meeting OK, calling showFloating');
-      await showFloating();
-      console.log('[Setup] showFloating OK');
+      console.log('[Setup] start_meeting OK');
       setStage('started');
     } catch (e) {
       console.error('[Setup] handleStart error:', e);

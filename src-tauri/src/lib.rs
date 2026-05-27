@@ -10,8 +10,8 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    collapse_floating, create_meeting, expand_floating, hide_floating, ingest_material,
-    list_supported_files, show_floating, start_meeting, stop_meeting, trigger_suggestion, AppState,
+    create_meeting, ingest_material, list_supported_files, start_meeting, stop_meeting,
+    translate_text, trigger_suggestion, AppState,
 };
 use config::Config;
 use db::Db;
@@ -70,10 +70,7 @@ pub fn run() {
             start_meeting,
             stop_meeting,
             trigger_suggestion,
-            show_floating,
-            hide_floating,
-            collapse_floating,
-            expand_floating,
+            translate_text,
             list_supported_files
         ])
         .run(tauri::generate_context!())

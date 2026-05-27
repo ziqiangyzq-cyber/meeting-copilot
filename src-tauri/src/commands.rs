@@ -1,10 +1,12 @@
 use crate::config::Config;
+use crate::llm::Message;
 use crate::orchestrator::Orchestrator;
 use crate::rag::ingest;
 use rusqlite::params;
 use std::path::PathBuf;
 use std::sync::Arc;
 use tauri::Emitter;
+use tokio::sync::mpsc;
 use uuid::Uuid;
 
 pub struct AppState {
@@ -121,87 +123,31 @@ pub async fn trigger_suggestion(
 }
 
 #[tauri::command]
-pub async fn show_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
-    use tauri::Manager;
-    let win = app
-        .get_webview_window("floating")
-        .ok_or_else(|| "floating window not found".to_string())?;
+pub async fn translate_text(
+    text: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<String, String> {
+    let llm = state.orchestrator.llm();
 
-    let monitor = win
-        .current_monitor()
-        .ok()
-        .flatten()
-        .or_else(|| win.primary_monitor().ok().flatten());
+    let messages = vec![
+        Message::system("You are a translator. Translate the user's text to natural, fluent Chinese. Output ONLY the Chinese translation — no explanation, no quotes, no preamble."),
+        Message::user(text),
+    ];
 
-    if let Some(monitor) = monitor {
-        let size = win.outer_size().map_err(|e| e.to_string())?;
-        let mon_size = monitor.size();
-        let mon_pos = monitor.position();
-        let scale = monitor.scale_factor();
-        let margin = (20.0 * scale) as i32;
-        // Right edge, vertically centered
-        let x = mon_pos.x + mon_size.width as i32 - size.width as i32 - margin;
-        let y = mon_pos.y + (mon_size.height as i32 - size.height as i32) / 2;
-        tracing::info!(
-            "show_floating: positioning to ({}, {}) right-middle on monitor {}x{} @ ({}, {})",
-            x,
-            y,
-            mon_size.width,
-            mon_size.height,
-            mon_pos.x,
-            mon_pos.y
-        );
-        win.set_position(tauri::PhysicalPosition { x, y })
-            .map_err(|e| format!("set_position failed: {e}"))?;
-    } else {
-        tracing::warn!("show_floating: no monitor found, using fallback (1400, 300)");
-        win.set_position(tauri::PhysicalPosition {
-            x: 1400_i32,
-            y: 300_i32,
-        })
-        .map_err(|e| format!("set_position fallback failed: {e}"))?;
+    let (tx, mut rx) = mpsc::channel::<String>(64);
+    let llm_task = tokio::spawn(async move { llm.stream(messages, tx).await });
+
+    let mut result = String::new();
+    while let Some(tok) = rx.recv().await {
+        result.push_str(&tok);
     }
 
-    win.show().map_err(|e| format!("show failed: {e}"))?;
-    tracing::info!("show_floating: window shown");
-    Ok(())
-}
+    llm_task
+        .await
+        .map_err(|e| format!("translate join failed: {e}"))?
+        .map_err(|e| format!("translate failed: {e}"))?;
 
-#[tauri::command]
-pub async fn hide_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
-    use tauri::Manager;
-    if let Some(win) = app.get_webview_window("floating") {
-        win.hide().map_err(|e| e.to_string())?;
-    }
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn collapse_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
-    use tauri::Manager;
-    let win = app
-        .get_webview_window("floating")
-        .ok_or_else(|| "floating window not found".to_string())?;
-    win.set_size(tauri::PhysicalSize {
-        width: 80_u32,
-        height: 80_u32,
-    })
-    .map_err(|e| format!("set_size failed: {e}"))?;
-    Ok(())
-}
-
-#[tauri::command]
-pub async fn expand_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
-    use tauri::Manager;
-    let win = app
-        .get_webview_window("floating")
-        .ok_or_else(|| "floating window not found".to_string())?;
-    win.set_size(tauri::PhysicalSize {
-        width: 220_u32,
-        height: 400_u32,
-    })
-    .map_err(|e| format!("set_size failed: {e}"))?;
-    Ok(())
+    Ok(result.trim().to_string())
 }
 
 #[tauri::command]

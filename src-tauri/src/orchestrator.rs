@@ -60,6 +60,10 @@ impl Orchestrator {
         self.embed.clone()
     }
 
+    pub fn llm(&self) -> Arc<dyn LLMClient> {
+        self.llm.clone()
+    }
+
     /// Start a meeting: spawn AudioHelper, connect ASR, init SuggestionEngine, start auto timer.
     pub async fn start(
         &self,
