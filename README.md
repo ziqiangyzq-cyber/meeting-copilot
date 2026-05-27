@@ -26,7 +26,7 @@
 两个免费 key 才能工作:
 
 **(a) 阿里 DashScope**(语音转写 + 资料向量化)
-- 注册:<https://dashscope.console.aliyun.com>
+- 注册:<https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key>
 - 控制台 → API-KEY 管理 → 创建
 - 在阿里**百炼**(Bailian)开通这 2 个模型:
   - `paraformer-realtime-v2`(实时语音转写)

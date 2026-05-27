@@ -134,7 +134,7 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded text-sm text-blue-900">
           <p className="font-medium mb-2">这个工具需要 2 个 API Key 才能工作:</p>
           <ul className="list-disc ml-5 space-y-1.5">
-            <li><strong>阿里 DashScope</strong> — 实时语音转写 + 资料向量化<br/><span className="text-xs">注册:<code className="bg-blue-100 px-1">https://dashscope.console.aliyun.com</code></span></li>
+            <li><strong>阿里 DashScope</strong> — 实时语音转写 + 资料向量化<br/><span className="text-xs">注册:<code className="bg-blue-100 px-1">https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key</code></span></li>
             <li><strong>MiniMax</strong> — AI 建议 + 会议纪要 + 翻译<br/><span className="text-xs">注册:<code className="bg-blue-100 px-1">https://platform.minimaxi.com</code>,需要开通 <code className="bg-blue-100 px-1">MiniMax-M2.7-highspeed</code> 模型</span></li>
           </ul>
           <p className="mt-3 text-xs">两边都有免费额度。Key 保存在本地配置文件中(<code className="bg-blue-100 px-1">~/Library/Application Support/com.efc.meeting-copilot/keys.json</code>,owner-only 权限)。填好后建议点「测试」先验证一下再保存。</p>
@@ -171,7 +171,7 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
             <div className="text-xs text-red-600 mt-1">✗ {aliyunTestMsg}</div>
           )}
           <div className="text-xs text-gray-500 mt-1">
-            申请: <a href="https://dashscope.console.aliyun.com" target="_blank" rel="noreferrer" className="text-blue-600 underline">dashscope.console.aliyun.com</a> → 开通 paraformer-realtime-v2 + text-embedding-v3
+            申请: <a href="https://bailian.console.aliyun.com/cn-beijing?tab=model#/api-key" target="_blank" rel="noreferrer" className="text-blue-600 underline">bailian.console.aliyun.com</a> → 创建 API Key + 开通 paraformer-realtime-v2 + text-embedding-v3 模型
           </div>
         </div>
 
