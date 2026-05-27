@@ -4,10 +4,10 @@ import {
   createMeeting,
   startMeetingWithId,
   showFloating,
-  hideFloating,
 } from '../lib/tauri-bridge';
 import { MeetingForm } from '../components/MeetingForm';
-import { FileDropzone } from '../components/FileDropzone';
+import { MaterialFolderPicker } from '../components/MaterialFolderPicker';
+import { MeetingView } from './MeetingView';
 
 type Stage = 'form' | 'materials' | 'starting' | 'started';
 
@@ -47,6 +47,14 @@ export function Setup() {
     }
   };
 
+  if (stage === 'started') {
+    return <MeetingView onEnd={() => {
+      setStage('form');
+      setMeetingId(null);
+      setMaterialsReady(false);
+    }} />;
+  }
+
   return (
     <div className="min-h-screen bg-white p-8 max-w-2xl mx-auto">
       <h1 className="text-2xl font-bold mb-2">会议助理</h1>
@@ -73,7 +81,7 @@ export function Setup() {
 
           <div>
             <h2 className="text-lg font-semibold mb-4">2. 上传会议资料(可选)</h2>
-            <FileDropzone
+            <MaterialFolderPicker
               meetingId={meetingId}
               onAllReady={(anyIngested) => {
                 // anyIngested is informational; always allow proceeding once files settle
@@ -106,27 +114,6 @@ export function Setup() {
         </section>
       )}
 
-      {stage === 'started' && (
-        <section className="text-center py-12">
-          <div className="text-4xl mb-4">🎙️</div>
-          <p className="text-lg font-semibold">会议进行中</p>
-          <p className="text-sm text-gray-500 mt-2">
-            浮窗已在桌面右下角。在浮窗里点"结束"可停止会议。
-          </p>
-          <button
-            onClick={async () => {
-              await hideFloating();
-              // For testing: reset stage back to form for another meeting
-              setStage('form');
-              setMeetingId(null);
-              setMaterialsReady(false);
-            }}
-            className="mt-6 px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300 text-sm"
-          >
-            新建另一个会议
-          </button>
-        </section>
-      )}
     </div>
   );
 }

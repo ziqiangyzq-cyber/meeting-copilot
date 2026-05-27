@@ -13,6 +13,8 @@ import {
   stopMeeting,
   hideFloating,
   triggerSuggestion,
+  collapseFloating,
+  expandFloating,
 } from '../lib/tauri-bridge';
 import { SuggestionCard } from '../components/SuggestionCard';
 
@@ -26,6 +28,17 @@ export function Floating() {
     const stored = localStorage.getItem('notifyEnabled');
     return stored === null ? true : stored === 'true';
   });
+  const [collapsed, setCollapsed] = useState(false);
+
+  const handleToggleCollapse = async () => {
+    if (collapsed) {
+      await expandFloating();
+      setCollapsed(false);
+    } else {
+      await collapseFloating();
+      setCollapsed(true);
+    }
+  };
 
   useEffect(() => {
     localStorage.setItem('notifyEnabled', String(notifyEnabled));
@@ -151,25 +164,43 @@ export function Floating() {
     await hideFloating();
   };
 
+  if (collapsed) {
+    return (
+      <div
+        className="h-screen w-screen flex items-center justify-center bg-black/80 backdrop-blur cursor-pointer select-none rounded-full"
+        onClick={handleToggleCollapse}
+        title="点击展开"
+      >
+        <div className="text-2xl">🎙️</div>
+      </div>
+    );
+  }
+
   return (
     <div className="h-screen w-screen flex flex-col bg-black/80 backdrop-blur text-white text-xs font-mono select-none">
       {/* Top bar */}
-      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
-        <span className={isAsrOk ? 'text-green-400' : 'text-orange-400'}>●</span>
-        <span className="text-white/70">ASR</span>
-        <div className="flex-1" />
+      <div className="flex items-center gap-1.5 px-2 py-1.5 border-b border-white/10">
+        <span className={isAsrOk ? 'text-green-400 text-xs' : 'text-orange-400 text-xs'}>●</span>
         <button
           onClick={() => setNotifyEnabled(!notifyEnabled)}
-          className="text-base hover:opacity-80"
+          className="text-sm hover:opacity-80 px-1"
           title={notifyEnabled ? '通知开 (点击关闭)' : '通知关 (点击开启)'}
         >
           {notifyEnabled ? '🔔' : '🔕'}
         </button>
         <button
-          onClick={handleStop}
-          className="px-2 py-0.5 bg-red-600/80 hover:bg-red-600 rounded text-[10px]"
+          onClick={handleToggleCollapse}
+          className="text-white/70 hover:text-white text-sm font-bold px-1"
+          title="折叠为图标"
         >
-          结束
+          −
+        </button>
+        <div className="flex-1" />
+        <button
+          onClick={handleStop}
+          className="px-2.5 py-1 bg-red-600 hover:bg-red-700 text-white text-xs font-bold rounded shadow"
+        >
+          结束会议
         </button>
       </div>
 

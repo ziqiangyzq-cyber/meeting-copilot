@@ -10,8 +10,8 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, hide_floating, ingest_material, show_floating, start_meeting, stop_meeting,
-    trigger_suggestion, AppState,
+    collapse_floating, create_meeting, expand_floating, hide_floating, ingest_material,
+    list_supported_files, show_floating, start_meeting, stop_meeting, trigger_suggestion, AppState,
 };
 use config::Config;
 use db::Db;
@@ -38,6 +38,7 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .plugin(tauri_plugin_notification::init())
+        .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             let config = Config::from_env()
                 .expect("missing env vars (ALIYUN_API_KEY, MINIMAX_API_KEY)");
@@ -70,7 +71,10 @@ pub fn run() {
             stop_meeting,
             trigger_suggestion,
             show_floating,
-            hide_floating
+            hide_floating,
+            collapse_floating,
+            expand_floating,
+            list_supported_files
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

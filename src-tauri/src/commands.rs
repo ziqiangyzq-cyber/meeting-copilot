@@ -175,3 +175,61 @@ pub async fn hide_floating(app: tauri::AppHandle) -> std::result::Result<(), Str
     }
     Ok(())
 }
+
+#[tauri::command]
+pub async fn collapse_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    use tauri::Manager;
+    let win = app
+        .get_webview_window("floating")
+        .ok_or_else(|| "floating window not found".to_string())?;
+    win.set_size(tauri::PhysicalSize {
+        width: 80_u32,
+        height: 80_u32,
+    })
+    .map_err(|e| format!("set_size failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn expand_floating(app: tauri::AppHandle) -> std::result::Result<(), String> {
+    use tauri::Manager;
+    let win = app
+        .get_webview_window("floating")
+        .ok_or_else(|| "floating window not found".to_string())?;
+    win.set_size(tauri::PhysicalSize {
+        width: 220_u32,
+        height: 400_u32,
+    })
+    .map_err(|e| format!("set_size failed: {e}"))?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn list_supported_files(folder: String) -> std::result::Result<Vec<String>, String> {
+    use std::path::Path;
+    let path = Path::new(&folder);
+    if !path.is_dir() {
+        return Err(format!("not a directory: {folder}"));
+    }
+    let mut files = Vec::new();
+    let entries = std::fs::read_dir(path).map_err(|e| format!("read_dir: {e}"))?;
+    for entry in entries {
+        let entry = entry.map_err(|e| format!("entry: {e}"))?;
+        let p = entry.path();
+        if !p.is_file() {
+            continue;
+        }
+        let ext = p
+            .extension()
+            .and_then(|s| s.to_str())
+            .map(|s| s.to_lowercase())
+            .unwrap_or_default();
+        if matches!(ext.as_str(), "pdf" | "docx" | "md" | "txt") {
+            if let Some(s) = p.to_str() {
+                files.push(s.to_string());
+            }
+        }
+    }
+    files.sort();
+    Ok(files)
+}

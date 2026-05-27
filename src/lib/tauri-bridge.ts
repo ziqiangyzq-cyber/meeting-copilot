@@ -90,3 +90,15 @@ export async function onSuggestionComplete(cb: () => void): Promise<UnlistenFn> 
 export async function onSuggestionError(cb: (err: string) => void): Promise<UnlistenFn> {
   return listen<string>('suggestion_error', (e) => cb(e.payload));
 }
+
+export async function listSupportedFiles(folder: string): Promise<string[]> {
+  return await invoke<string[]>('list_supported_files', { folder });
+}
+
+export async function collapseFloating(): Promise<void> {
+  await invoke('collapse_floating');
+}
+
+export async function expandFloating(): Promise<void> {
+  await invoke('expand_floating');
+}
