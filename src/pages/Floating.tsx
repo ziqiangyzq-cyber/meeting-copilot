@@ -1,8 +1,15 @@
 import { useEffect, useState } from 'react';
 import { register, unregister } from '@tauri-apps/plugin-global-shortcut';
 import {
+  isPermissionGranted,
+  requestPermission,
+  sendNotification,
+} from '@tauri-apps/plugin-notification';
+import {
   TranscriptEvent,
   onTranscript,
+  onSuggestionToken,
+  onSuggestionComplete,
   stopMeeting,
   hideFloating,
   triggerSuggestion,
@@ -15,6 +22,72 @@ export function Floating() {
   console.log('[Floating] component mounting, location:', window.location.href);
   const [items, setItems] = useState<TranscriptEvent[]>([]);
   const [isAsrOk] = useState(true);
+  const [notifyEnabled, setNotifyEnabled] = useState<boolean>(() => {
+    const stored = localStorage.getItem('notifyEnabled');
+    return stored === null ? true : stored === 'true';
+  });
+
+  useEffect(() => {
+    localStorage.setItem('notifyEnabled', String(notifyEnabled));
+  }, [notifyEnabled]);
+
+  // Request macOS notification permission when enabled
+  useEffect(() => {
+    if (!notifyEnabled) return;
+    (async () => {
+      try {
+        let granted = await isPermissionGranted();
+        if (!granted) {
+          const perm = await requestPermission();
+          granted = perm === 'granted';
+        }
+        if (!granted) {
+          setNotifyEnabled(false);
+        }
+      } catch (e) {
+        console.error('notification permission check failed', e);
+      }
+    })();
+  }, [notifyEnabled]);
+
+  // Listen for suggestion stream and fire notification on completion
+  useEffect(() => {
+    const accumRef = { current: '' };
+    let unlistenToken: (() => void) | undefined;
+    let unlistenDone: (() => void) | undefined;
+
+    onSuggestionToken((token) => {
+      accumRef.current += token;
+    }).then((fn) => {
+      unlistenToken = fn;
+    });
+
+    onSuggestionComplete(() => {
+      const text = accumRef.current.trim();
+      if (text) {
+        // Read from localStorage to avoid stale closure
+        const enabled = localStorage.getItem('notifyEnabled') !== 'false';
+        if (enabled) {
+          try {
+            sendNotification({
+              title: '会议助理 — 新建议',
+              body: text.slice(0, 120),
+            });
+          } catch (e) {
+            console.error('sendNotification failed', e);
+          }
+        }
+      }
+      accumRef.current = '';
+    }).then((fn) => {
+      unlistenDone = fn;
+    });
+
+    return () => {
+      unlistenToken?.();
+      unlistenDone?.();
+    };
+  }, []);
 
   useEffect(() => {
     let unlisten: (() => void) | undefined;
@@ -80,16 +153,18 @@ export function Floating() {
 
   return (
     <div className="h-screen w-screen flex flex-col bg-black/80 backdrop-blur text-white text-xs font-mono select-none">
-      {items.length === 0 && (
-        <div className="p-4 bg-yellow-500 text-black text-sm">
-          [DEBUG] 浮窗已加载 — 等待转写...
-        </div>
-      )}
       {/* Top bar */}
       <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
         <span className={isAsrOk ? 'text-green-400' : 'text-orange-400'}>●</span>
         <span className="text-white/70">ASR</span>
         <div className="flex-1" />
+        <button
+          onClick={() => setNotifyEnabled(!notifyEnabled)}
+          className="text-base hover:opacity-80"
+          title={notifyEnabled ? '通知开 (点击关闭)' : '通知关 (点击开启)'}
+        >
+          {notifyEnabled ? '🔔' : '🔕'}
+        </button>
         <button
           onClick={handleStop}
           className="px-2 py-0.5 bg-red-600/80 hover:bg-red-600 rounded text-[10px]"

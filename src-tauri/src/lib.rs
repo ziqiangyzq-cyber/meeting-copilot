@@ -37,6 +37,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_notification::init())
         .setup(|app| {
             let config = Config::from_env()
                 .expect("missing env vars (ALIYUN_API_KEY, MINIMAX_API_KEY)");

@@ -127,7 +127,6 @@ pub async fn show_floating(app: tauri::AppHandle) -> std::result::Result<(), Str
         .get_webview_window("floating")
         .ok_or_else(|| "floating window not found".to_string())?;
 
-    // Try current monitor first; fall back to primary monitor; fall back to (100, 100).
     let monitor = win
         .current_monitor()
         .ok()
@@ -140,31 +139,30 @@ pub async fn show_floating(app: tauri::AppHandle) -> std::result::Result<(), Str
         let mon_pos = monitor.position();
         let scale = monitor.scale_factor();
         let margin = (20.0 * scale) as i32;
+        // Right edge, vertically centered
         let x = mon_pos.x + mon_size.width as i32 - size.width as i32 - margin;
-        let y = mon_pos.y + mon_size.height as i32 - size.height as i32 - margin * 4;
+        let y = mon_pos.y + (mon_size.height as i32 - size.height as i32) / 2;
         tracing::info!(
-            "show_floating: positioning to ({}, {}) on monitor {}x{} @ ({}, {}), scale={}",
+            "show_floating: positioning to ({}, {}) right-middle on monitor {}x{} @ ({}, {})",
             x,
             y,
             mon_size.width,
             mon_size.height,
             mon_pos.x,
-            mon_pos.y,
-            scale
+            mon_pos.y
         );
         win.set_position(tauri::PhysicalPosition { x, y })
             .map_err(|e| format!("set_position failed: {e}"))?;
     } else {
-        tracing::warn!("show_floating: no monitor found, using fallback position (100, 100)");
+        tracing::warn!("show_floating: no monitor found, using fallback (1400, 300)");
         win.set_position(tauri::PhysicalPosition {
-            x: 100_i32,
-            y: 100_i32,
+            x: 1400_i32,
+            y: 300_i32,
         })
         .map_err(|e| format!("set_position fallback failed: {e}"))?;
     }
 
     win.show().map_err(|e| format!("show failed: {e}"))?;
-    win.set_focus().ok(); // bring it forward in case it's behind main window
     tracing::info!("show_floating: window shown");
     Ok(())
 }
