@@ -1,33 +1,35 @@
 import Foundation
 import AVFoundation
+import CoreAudio
 
 class MicCapture {
-    private var engine = AVAudioEngine()  // var: gets replaced on hot-swap
+    private var engine = AVAudioEngine()
     private let converter: PCMConverter
     private var isRunning = false
-    private var notifObserver: NSObjectProtocol?
     private var restartScheduled = false
+    private var coreAudioListenerInstalled = false
 
     init(converter: PCMConverter) {
         self.converter = converter
     }
 
     func start() throws {
-        try installTapAndStart()
-        // Listen for ANY audio engine config change in this process (object: nil).
-        // We only have one engine here; using nil keeps the subscription valid
-        // even after we replace `self.engine` on hot-swap.
-        notifObserver = NotificationCenter.default.addObserver(
-            forName: .AVAudioEngineConfigurationChange,
-            object: nil,
-            queue: nil
-        ) { [weak self] _ in
-            self?.scheduleRestart()
-        }
+        try buildEngineAndStart()
+        installCoreAudioListener()
         isRunning = true
     }
 
-    private func installTapAndStart() throws {
+    private func buildEngineAndStart() throws {
+        // 1. Set the input device EXPLICITLY to the current default
+        if let deviceID = currentDefaultInputDeviceID() {
+            let name = deviceName(for: deviceID) ?? "unknown"
+            logInfo("setting mic to device: \(name) (id=\(deviceID))")
+            setInputDevice(on: engine, deviceID: deviceID)
+        } else {
+            logError("could not get default input device id, falling back to engine default")
+        }
+
+        // 2. Install tap + start
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
@@ -39,7 +41,30 @@ class MicCapture {
         logInfo("mic capture started, input format: \(inputFormat)")
     }
 
-    /// Coalesce rapid-fire config changes (macOS sometimes fires 2-3 in quick succession during a plug event).
+    private func installCoreAudioListener() {
+        guard !coreAudioListenerInstalled else { return }
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let status = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address,
+            DispatchQueue.main
+        ) { [weak self] _, _ in
+            logInfo("core audio default input device changed")
+            self?.scheduleRestart()
+        }
+        if status == noErr {
+            coreAudioListenerInstalled = true
+            logInfo("installed core audio default-input listener")
+        } else {
+            logError("failed to install core audio listener: OSStatus=\(status)")
+        }
+    }
+
+    /// Coalesce rapid-fire change events (macOS often fires 2-3 per real plug event).
     private func scheduleRestart() {
         if restartScheduled { return }
         restartScheduled = true
@@ -51,41 +76,94 @@ class MicCapture {
 
     private func performRestart() {
         guard isRunning else { return }
-        logInfo("audio config changed — recreating engine on new default device")
+        logInfo("restarting mic capture on new default device")
 
         // Tear down old engine completely
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
         engine.reset()
 
-        // Replace with a fresh instance so internal state is clean
+        // New engine instance ensures clean state
         engine = AVAudioEngine()
 
         do {
-            try installTapAndStart()
+            try buildEngineAndStart()
         } catch {
             logError("mic restart after device change failed: \(error)")
         }
     }
 
-    /// Manual trigger — for when the auto observer fails to detect a change
-    /// (rare on macOS but worth having as a fallback).
+    /// Manual trigger — fallback for when the core-audio observer somehow misses.
     func manualRestart() {
         logInfo("manual mic restart requested")
         performRestart()
     }
 
     func stop() {
-        if let obs = notifObserver {
-            NotificationCenter.default.removeObserver(obs)
-            notifObserver = nil
-        }
+        // Note: the core-audio listener block is intentionally NOT removed.
+        // The process will exit shortly after stop() anyway, and removing a Block
+        // listener requires holding the original Block reference which is awkward.
+        // Process exit cleans it up.
         if isRunning {
             engine.inputNode.removeTap(onBus: 0)
             engine.stop()
             engine.reset()
             isRunning = false
             logInfo("mic capture stopped")
+        }
+    }
+
+    // MARK: - Core Audio helpers
+
+    private func currentDefaultInputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultInputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = kAudioObjectUnknown
+        var size: UInt32 = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address, 0, nil, &size, &deviceID
+        )
+        if status == noErr && deviceID != kAudioObjectUnknown {
+            return deviceID
+        }
+        return nil
+    }
+
+    private func deviceName(for deviceID: AudioDeviceID) -> String? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioObjectPropertyName,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var name: Unmanaged<CFString>?
+        var size: UInt32 = UInt32(MemoryLayout<Unmanaged<CFString>?>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &name)
+        guard status == noErr, let cf = name?.takeRetainedValue() else { return nil }
+        return cf as String
+    }
+
+    private func setInputDevice(on engine: AVAudioEngine, deviceID: AudioDeviceID) {
+        // engine.inputNode.audioUnit returns AudioUnit? — must touch inputNode at least once
+        // to instantiate the underlying AUHAL.
+        guard let audioUnit = engine.inputNode.audioUnit else {
+            logError("inputNode.audioUnit is nil — cannot set device")
+            return
+        }
+        var devID = deviceID
+        let status = AudioUnitSetProperty(
+            audioUnit,
+            kAudioOutputUnitProperty_CurrentDevice,
+            kAudioUnitScope_Global,
+            0,
+            &devID,
+            UInt32(MemoryLayout<AudioDeviceID>.size)
+        )
+        if status != noErr {
+            logError("AudioUnitSetProperty CurrentDevice failed: OSStatus=\(status)")
         }
     }
 }
