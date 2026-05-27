@@ -6,7 +6,7 @@ use crate::db::Db;
 use crate::error::{AppError, Result};
 use crate::llm::{minimax::MiniMaxClient, LLMClient};
 use crate::rag::embedding::EmbeddingClient;
-use crate::suggestion::{MeetingMeta, SuggestionEngine, TriggerType};
+use crate::suggestion::{SuggestionEngine, TriggerType};
 use rusqlite::params;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -77,9 +77,6 @@ impl Orchestrator {
             return Err(AppError::AudioHelper("already running".into()));
         }
 
-        // Load meeting meta for SuggestionEngine prompts
-        let meta = load_meeting_meta(&self.db, &meeting_id)?;
-
         // 1. Spawn AudioHelper
         let bin_path = locate_helper_binary()?;
         let mut helper = HelperProc::spawn(bin_path).await?;
@@ -91,13 +88,13 @@ impl Orchestrator {
             .await?;
         let asr = Arc::new(Mutex::new(asr));
 
-        // 3. Build SuggestionEngine
+        // 3. Build SuggestionEngine (meta re-read from DB on each generate so
+        // mid-meeting focus_points edits take effect immediately).
         let engine = Arc::new(SuggestionEngine::new(
             self.db.clone(),
             self.embed.clone(),
             self.llm.clone(),
             meeting_id.clone(),
-            meta,
         ));
 
         // 4. Pump frames from helper → ASR
@@ -282,23 +279,6 @@ impl Orchestrator {
         let _ = app.emit("suggestion_complete", ());
         Ok(())
     }
-}
-
-fn load_meeting_meta(db: &Db, meeting_id: &str) -> Result<MeetingMeta> {
-    let conn = db.conn();
-    let meta = conn.query_row(
-        "SELECT name, project_ref, purpose, participants FROM meetings WHERE id = ?",
-        [meeting_id],
-        |r| {
-            Ok(MeetingMeta {
-                name: r.get(0)?,
-                project_ref: r.get(1)?,
-                purpose: r.get(2)?,
-                participants: r.get(3)?,
-            })
-        },
-    )?;
-    Ok(meta)
 }
 
 fn locate_helper_binary() -> Result<PathBuf> {

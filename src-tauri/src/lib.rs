@@ -13,7 +13,7 @@ mod suggestion;
 use commands::{
     create_meeting, generate_minutes, get_meeting_detail, ingest_material, list_meetings,
     list_supported_files, set_suggestions_enabled, start_meeting, stop_meeting, translate_text,
-    trigger_suggestion, AppState,
+    trigger_suggestion, update_focus_points, AppState,
 };
 use config::Config;
 use db::Db;
@@ -76,7 +76,8 @@ pub fn run() {
             list_supported_files,
             generate_minutes,
             list_meetings,
-            get_meeting_detail
+            get_meeting_detail,
+            update_focus_points
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

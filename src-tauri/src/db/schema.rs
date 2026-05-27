@@ -75,5 +75,10 @@ pub fn init(conn: &Connection) -> Result<()> {
     for stmt in DDL {
         conn.execute(stmt, [])?;
     }
+
+    // Idempotent migration: add focus_points column to meetings if missing.
+    // SQLite errors on duplicate column add; we swallow that specific error.
+    let _ = conn.execute("ALTER TABLE meetings ADD COLUMN focus_points TEXT", []);
+
     Ok(())
 }

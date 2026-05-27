@@ -91,7 +91,6 @@ pub struct SuggestionEngine {
     embed: Arc<EmbeddingClient>,
     llm: Arc<dyn LLMClient>,
     meeting_id: String,
-    meta: MeetingMeta,
 }
 
 impl SuggestionEngine {
@@ -100,7 +99,6 @@ impl SuggestionEngine {
         embed: Arc<EmbeddingClient>,
         llm: Arc<dyn LLMClient>,
         meeting_id: String,
-        meta: MeetingMeta,
     ) -> Self {
         Self {
             buffer: Arc::new(Mutex::new(TranscriptBuffer::default())),
@@ -108,12 +106,31 @@ impl SuggestionEngine {
             embed,
             llm,
             meeting_id,
-            meta,
         }
     }
 
     pub async fn push_transcript(&self, evt: TranscriptEvent) {
         self.buffer.lock().await.push(evt);
+    }
+
+    /// Re-read meeting metadata (including focus_points) from DB on every call so
+    /// mid-meeting edits to focus_points take effect immediately on next generation.
+    fn load_meta(&self) -> Result<MeetingMeta> {
+        let conn = self.db.conn();
+        let meta = conn.query_row(
+            "SELECT name, project_ref, purpose, participants, focus_points FROM meetings WHERE id = ?",
+            [&self.meeting_id],
+            |r| {
+                Ok(MeetingMeta {
+                    name: r.get(0)?,
+                    project_ref: r.get(1)?,
+                    purpose: r.get(2)?,
+                    participants: r.get(3)?,
+                    focus_points: r.get(4)?,
+                })
+            },
+        )?;
+        Ok(meta)
     }
 
     /// Generate one suggestion. Streams tokens to `out`. Returns Ok(()) on
@@ -136,6 +153,9 @@ impl SuggestionEngine {
         } else {
             query
         };
+
+        // Re-read meta from DB so mid-meeting focus_points edits flow through immediately
+        let meta = self.load_meta()?;
 
         // RAG retrieve top-K. If embedding/retrieve fails, fall back to empty chunks
         // (suggestion still gets generated, just without references).
@@ -163,7 +183,7 @@ impl SuggestionEngine {
         };
 
         let system = system_prompt();
-        let user = user_prompt(&self.meta, &recent, &chunks);
+        let user = user_prompt(&meta, &recent, &chunks);
 
         let messages = vec![Message::system(system), Message::user(user)];
         tracing::info!("suggestion generate: calling LLM stream, messages={}", messages.len());

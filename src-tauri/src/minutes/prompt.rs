@@ -1,8 +1,9 @@
 use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
 use std::fmt::Write;
 
-const SYSTEM_PROMPT: &str = r#"你是 EFC 创羿幕墙顾问公司合伙人杨自强的会议纪要生成助手。
-他刚开完一场会议(通常是客户/建筑师/总包谈判 / 设计评审 / 立项 / 投标沟通)。
+const SYSTEM_PROMPT: &str = r#"你是 Zion 的会议纪要生成助手。
+他刚开完一场会议(类型不定 — 工作 / 客户 / 评审 / 私人沟通都有可能)。
+不要预设行业,根据会议元数据 + 转写内容判断场景。
 你的任务:基于全场转写 + AI 给过的建议历史 + 会议元数据,生成一份结构化中文 Markdown 纪要。
 
 ## 你的产出格式(严格按以下结构,不要省略任何 ## 标题)
@@ -75,6 +76,11 @@ pub fn user_prompt(ctx: &MinutesContext) -> String {
         "- 参会人: {}",
         ctx.meeting.participants.as_deref().unwrap_or("—")
     );
+    if let Some(f) = &ctx.meeting.focus_points {
+        if !f.trim().is_empty() {
+            let _ = writeln!(out, "- 本次重点关注: {}", f.trim());
+        }
+    }
     let _ = writeln!(out, "- 开始: {}", fmt_ms(ctx.meeting.started_at));
     if let Some(end) = ctx.meeting.ended_at {
         let _ = writeln!(out, "- 结束: {}", fmt_ms(end));
@@ -168,6 +174,7 @@ mod tests {
             ended_at: Some(1_700_003_600_000),
             audio_path: None,
             metadata: None,
+            focus_points: None,
         }
     }
 
@@ -224,5 +231,25 @@ mod tests {
         assert!(s.contains("全场转写"));
         // Should still have empty section marker
         assert!(s.matches("(无)").count() >= 2);
+    }
+
+    #[test]
+    fn user_prompt_includes_focus_points() {
+        let mut m = sample_meeting();
+        m.focus_points = Some("拿到对方对交付时间的明确承诺".into());
+        let ctx = MinutesContext {
+            meeting: &m,
+            transcripts: &[],
+            suggestions: &[],
+        };
+        let s = user_prompt(&ctx);
+        assert!(s.contains("本次重点关注: 拿到对方对交付时间的明确承诺"));
+    }
+
+    #[test]
+    fn system_prompt_is_neutralized() {
+        let s = system_prompt();
+        assert!(s.contains("Zion"));
+        assert!(!s.contains("EFC 创羿幕墙"));
     }
 }

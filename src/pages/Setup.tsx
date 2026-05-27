@@ -17,6 +17,7 @@ export function Setup() {
   const [stage, setStage] = useState<Stage>('form');
   const [meetingId, setMeetingId] = useState<string | null>(null);
   const [meetingName, setMeetingName] = useState<string>('');
+  const [meetingFocus, setMeetingFocus] = useState<string>('');
   const [error, setError] = useState<string | null>(null);
   const [materialsReady, setMaterialsReady] = useState(false);
   const [historyMeetingId, setHistoryMeetingId] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export function Setup() {
       const id = await createMeeting(draft);
       setMeetingId(id);
       setMeetingName(draft.name);
+      setMeetingFocus(draft.focus_points || '');
       setMaterialsReady(true); // ready immediately — no files yet
       setStage('materials');
     } catch (e) {
@@ -83,16 +85,23 @@ export function Setup() {
           setStage('form');
           setMeetingId(null);
           setMeetingName('');
+          setMeetingFocus('');
           setMaterialsReady(false);
         }}
       />
     );
   }
 
-  if (stage === 'started') {
-    return <MeetingView onEnd={() => {
-      setStage('minutes');
-    }} />;
+  if (stage === 'started' && meetingId) {
+    return (
+      <MeetingView
+        meetingId={meetingId}
+        initialFocusPoints={meetingFocus}
+        onEnd={() => {
+          setStage('minutes');
+        }}
+      />
+    );
   }
 
   return (

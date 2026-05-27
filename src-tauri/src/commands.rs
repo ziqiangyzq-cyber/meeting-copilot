@@ -45,6 +45,7 @@ pub async fn create_meeting(
     project_ref: Option<String>,
     purpose: Option<String>,
     participants: Option<String>,
+    focus_points: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<String, String> {
     let meeting_id = Uuid::new_v4().simple().to_string();
@@ -56,12 +57,34 @@ pub async fn create_meeting(
     let db = state.orchestrator.db();
     let conn = db.conn();
     conn.execute(
-        "INSERT INTO meetings (id, name, project_ref, purpose, participants, started_at) VALUES (?, ?, ?, ?, ?, ?)",
-        params![meeting_id, name, project_ref, purpose, participants, now],
+        "INSERT INTO meetings (id, name, project_ref, purpose, participants, started_at, focus_points) VALUES (?, ?, ?, ?, ?, ?, ?)",
+        params![meeting_id, name, project_ref, purpose, participants, now, focus_points],
     )
     .map_err(|e| e.to_string())?;
 
     Ok(meeting_id)
+}
+
+#[tauri::command]
+pub async fn update_focus_points(
+    meeting_id: String,
+    focus_points: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.orchestrator.db();
+    let conn = db.conn();
+    // Empty string means "no focus" — store as NULL for cleanliness
+    let value: Option<String> = if focus_points.trim().is_empty() {
+        None
+    } else {
+        Some(focus_points)
+    };
+    conn.execute(
+        "UPDATE meetings SET focus_points = ? WHERE id = ?",
+        params![value, meeting_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -319,7 +342,7 @@ pub async fn get_meeting_detail(
 
     let meeting: Meeting = conn
         .query_row(
-            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata FROM meetings WHERE id = ?",
+            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points FROM meetings WHERE id = ?",
             [&meeting_id],
             |r| {
                 Ok(Meeting {
@@ -332,6 +355,7 @@ pub async fn get_meeting_detail(
                     ended_at: r.get(6)?,
                     audio_path: r.get(7)?,
                     metadata: r.get(8)?,
+                    focus_points: r.get(9)?,
                 })
             },
         )

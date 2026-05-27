@@ -5,7 +5,7 @@ mod integration {
     use crate::db::Db;
     use crate::llm::minimax::MiniMaxClient;
     use crate::rag::{embedding::EmbeddingClient, ingest};
-    use crate::suggestion::{MeetingMeta, SuggestionEngine, TriggerType};
+    use crate::suggestion::{SuggestionEngine, TriggerType};
     use rusqlite::params;
     use std::io::Write;
     use std::sync::Arc;
@@ -61,15 +61,9 @@ KPF 顾问同类项目报价约 240 万,Permasteelisa 设计咨询约 280 万。
             .await
             .expect("ingest failed");
 
-        // 3. Build engine
+        // 3. Build engine (meta is re-loaded from DB inside generate())
         let llm: Arc<dyn crate::llm::LLMClient> = Arc::new(MiniMaxClient::new(minimax_key));
-        let meta = MeetingMeta {
-            name: "陆家嘴谈判".into(),
-            project_ref: Some("陆家嘴连桥".into()),
-            purpose: Some("报价谈判".into()),
-            participants: None,
-        };
-        let engine = SuggestionEngine::new(db.clone(), embed.clone(), llm, meeting_id.into(), meta);
+        let engine = SuggestionEngine::new(db.clone(), embed.clone(), llm, meeting_id.into());
 
         // 4. Push some transcript events simulating an active meeting
         let events = vec![

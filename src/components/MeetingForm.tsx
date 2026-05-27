@@ -11,6 +11,7 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
   const [projectRef, setProjectRef] = useState('');
   const [purpose, setPurpose] = useState('');
   const [participants, setParticipants] = useState('');
+  const [focusPoints, setFocusPoints] = useState('');
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -20,6 +21,7 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
       project_ref: projectRef.trim() || undefined,
       purpose: purpose.trim() || undefined,
       participants: participants.trim() || undefined,
+      focus_points: focusPoints.trim() || undefined,
     });
   };
 
@@ -87,6 +89,20 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
           disabled={disabled}
           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
           placeholder="例:陆家嘴林总, 华东院李工"
+        />
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium mb-1 text-gray-700">
+          本次重点关注(可选,会议中也可以临时改)
+        </label>
+        <textarea
+          value={focusPoints}
+          onChange={(e) => setFocusPoints(e.target.value)}
+          disabled={disabled}
+          rows={2}
+          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 text-sm"
+          placeholder="例:对方今天要砍价,留意话术;或:关注合规风险;或:我要拿到对XX的具体承诺"
         />
       </div>
 

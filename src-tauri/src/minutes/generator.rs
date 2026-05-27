@@ -73,7 +73,7 @@ impl MinutesGenerator {
         let conn = self.db.conn();
 
         let meeting: Meeting = conn.query_row(
-            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata FROM meetings WHERE id = ?",
+            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points FROM meetings WHERE id = ?",
             [meeting_id],
             |r| Ok(Meeting {
                 id: r.get(0)?,
@@ -85,6 +85,7 @@ impl MinutesGenerator {
                 ended_at: r.get(6)?,
                 audio_path: r.get(7)?,
                 metadata: r.get(8)?,
+                focus_points: r.get(9)?,
             }),
         )?;
 

@@ -30,6 +30,7 @@ export interface MeetingDraft {
   project_ref?: string;
   purpose?: string;
   participants?: string;
+  focus_points?: string;
 }
 
 export interface MaterialProgressEvent {
@@ -45,7 +46,12 @@ export async function createMeeting(draft: MeetingDraft): Promise<string> {
     projectRef: draft.project_ref,
     purpose: draft.purpose,
     participants: draft.participants,
+    focusPoints: draft.focus_points,
   });
+}
+
+export async function updateFocusPoints(meetingId: string, focusPoints: string): Promise<void> {
+  await invoke('update_focus_points', { meetingId, focusPoints });
 }
 
 export async function ingestMaterial(meetingId: string, filePath: string): Promise<string> {
@@ -139,6 +145,7 @@ export interface MeetingDetail {
     ended_at: number | null;
     audio_path: string | null;
     metadata: string | null;
+    focus_points: string | null;
   };
   transcripts: {
     id: number;

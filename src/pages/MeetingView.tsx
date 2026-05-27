@@ -8,6 +8,7 @@ import {
   setSuggestionsEnabled,
   stopMeeting,
   translateText,
+  updateFocusPoints,
 } from '../lib/tauri-bridge';
 
 interface CompletedSuggestion {
@@ -16,6 +17,8 @@ interface CompletedSuggestion {
 }
 
 interface Props {
+  meetingId: string;
+  initialFocusPoints?: string;
   onEnd: () => void;
 }
 
@@ -27,7 +30,7 @@ function isLikelyEnglish(text: string): boolean {
   return /[a-zA-Z]/.test(text);
 }
 
-export function MeetingView({ onEnd }: Props) {
+export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
   const [transcripts, setTranscripts] = useState<TranscriptEvent[]>([]);
   const [suggestions, setSuggestions] = useState<CompletedSuggestion[]>([]);
   const [currentStream, setCurrentStream] = useState<string>('');
@@ -38,9 +41,30 @@ export function MeetingView({ onEnd }: Props) {
     const stored = localStorage.getItem('suggestEnabled');
     return stored === null ? true : stored === 'true';
   });
+  const [focus, setFocus] = useState<string>(initialFocusPoints || '');
+  const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumRef = useRef<string>('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const translationDispatched = useRef<Set<number>>(new Set());
+
+  // Debounced save of focus_points to DB (500ms after last keystroke).
+  // Engine re-reads meta on each generate so the next suggestion picks up the change.
+  const handleFocusChange = (val: string) => {
+    setFocus(val);
+    if (focusTimer.current) clearTimeout(focusTimer.current);
+    focusTimer.current = setTimeout(() => {
+      updateFocusPoints(meetingId, val).catch((e) =>
+        console.error('updateFocusPoints failed', e),
+      );
+    }, 500);
+  };
+
+  // Cleanup any pending debounce on unmount so stale saves don't fire
+  useEffect(() => {
+    return () => {
+      if (focusTimer.current) clearTimeout(focusTimer.current);
+    };
+  }, []);
 
   // Persist toggle to localStorage
   useEffect(() => {
@@ -196,6 +220,17 @@ export function MeetingView({ onEnd }: Props) {
           结束会议
         </button>
       </header>
+
+      <div className="px-6 py-2 border-b bg-yellow-50 flex items-center gap-2 shrink-0">
+        <span className="text-xs text-yellow-800 shrink-0 font-medium">💡 重点关注:</span>
+        <input
+          type="text"
+          value={focus}
+          onChange={(e) => handleFocusChange(e.target.value)}
+          placeholder="点这里临时添加 AI 要重点帮你关注的事项(自动保存,下一条建议起生效)"
+          className="flex-1 px-2 py-1 bg-transparent text-sm placeholder-gray-400 focus:outline-none focus:bg-white focus:px-3 focus:rounded focus:border focus:border-yellow-300"
+        />
+      </div>
 
       <div className="flex-1 grid grid-cols-2 overflow-hidden">
         <section className="overflow-y-auto border-r p-4 space-y-2">

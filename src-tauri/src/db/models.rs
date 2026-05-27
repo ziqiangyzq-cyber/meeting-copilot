@@ -11,6 +11,7 @@ pub struct Meeting {
     pub ended_at: Option<i64>,
     pub audio_path: Option<String>,
     pub metadata: Option<String>,
+    pub focus_points: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
