@@ -40,7 +40,6 @@ chrono = { version = "0.4", features = ["serde"] }
 pdf-extract = "0.10"
 docx-rs = "0.4"
 reqwest = { version = "0.12", features = ["json", "rustls-tls", "stream"], default-features = false }
-keyring = "3"
 
 [dev-dependencies]
 tempfile = "3"

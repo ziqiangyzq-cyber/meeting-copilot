@@ -137,7 +137,7 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
             <li><strong>阿里 DashScope</strong> — 实时语音转写 + 资料向量化<br/><span className="text-xs">注册:<code className="bg-blue-100 px-1">https://dashscope.console.aliyun.com</code></span></li>
             <li><strong>MiniMax</strong> — AI 建议 + 会议纪要 + 翻译<br/><span className="text-xs">注册:<code className="bg-blue-100 px-1">https://platform.minimaxi.com</code>,需要开通 <code className="bg-blue-100 px-1">MiniMax-M2.7-highspeed</code> 模型</span></li>
           </ul>
-          <p className="mt-3 text-xs">两边都有免费额度。Key 保存在 macOS 钥匙串(系统加密),不出现在任何文件里。填好后建议点「测试」先验证一下再保存。</p>
+          <p className="mt-3 text-xs">两边都有免费额度。Key 保存在本地配置文件中(<code className="bg-blue-100 px-1">~/Library/Application Support/com.efc.meeting-copilot/keys.json</code>,owner-only 权限)。填好后建议点「测试」先验证一下再保存。</p>
         </div>
       )}
 
@@ -220,7 +220,7 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
             disabled={saving}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded font-medium"
           >
-            {saving ? '保存中...' : '保存到钥匙串'}
+            {saving ? '保存中...' : '保存'}
           </button>
           {saved && <span className="text-sm text-green-600">✓ 已保存</span>}
         </div>
