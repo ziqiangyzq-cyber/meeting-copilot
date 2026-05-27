@@ -467,10 +467,24 @@ pub async fn save_api_keys(
     minimax: String,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<(), String> {
-    crate::config::save_keys(&aliyun, &minimax).map_err(|e| e.to_string())?;
-    if let Ok(Some(config)) = crate::config::Config::load() {
-        state.orchestrator.reconfigure(&config);
+    // Try Keychain write (may silently fail on .dmg-installed apps with ACL quirks);
+    // log but don't abort — runtime check reads from Orchestrator memory.
+    if let Err(e) = crate::config::save_keys(&aliyun, &minimax) {
+        tracing::warn!("save_keys (Keychain) failed: {e} — proceeding with in-memory reconfigure");
     }
+    // Build Config directly from user input — don't rely on Keychain readback
+    // (read can fail with ACL/permission issues even if write succeeded).
+    let sanitize = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+    let config = crate::config::Config {
+        aliyun_api_key: sanitize(&aliyun),
+        minimax_api_key: sanitize(&minimax),
+    };
+    tracing::info!(
+        "save_api_keys: reconfiguring orchestrator (aliyun_len={}, minimax_len={})",
+        config.aliyun_api_key.len(),
+        config.minimax_api_key.len(),
+    );
+    state.orchestrator.reconfigure(&config);
     Ok(())
 }
 
