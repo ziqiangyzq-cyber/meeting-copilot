@@ -89,7 +89,7 @@ pub fn user_prompt(
 
     let _ = writeln!(out);
     let _ = writeln!(out, "## 任务");
-    let _ = writeln!(out, "看当下,给我一条建议(战术/战略/信息 自选)。");
+    let _ = writeln!(out, "看当下,给我一条最有帮助的提示(类型从你的角色定义里自选)。");
 
     out
 }
