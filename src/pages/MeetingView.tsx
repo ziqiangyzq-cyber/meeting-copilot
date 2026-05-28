@@ -11,6 +11,8 @@ import {
   updateFocusPoints,
   updateMeetingNotes,
   restartMic,
+  getVoiceProcessing,
+  setVoiceProcessing,
 } from '../lib/tauri-bridge';
 
 interface CompletedSuggestion {
@@ -45,6 +47,7 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
   });
   const [focus, setFocus] = useState<string>(initialFocusPoints || '');
   const [notes, setNotes] = useState<string>('');
+  const [vpEnabled, setVpEnabled] = useState<boolean>(true);
   const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumRef = useRef<string>('');
@@ -94,6 +97,24 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
       console.error('set_suggestions_enabled failed', e),
     );
   }, [suggestEnabled]);
+
+  // Initial load: read current voice-processing pref from backend (same source as Settings)
+  useEffect(() => {
+    getVoiceProcessing()
+      .then(setVpEnabled)
+      .catch((e) => console.error('getVoiceProcessing failed', e));
+  }, []);
+
+  const handleToggleVp = async () => {
+    const next = !vpEnabled;
+    setVpEnabled(next);
+    try {
+      await setVoiceProcessing(next);
+    } catch (e) {
+      console.error('toggle vp failed', e);
+      setVpEnabled(!next); // revert on failure
+    }
+  };
 
   // transcript subscription
   useEffect(() => {
@@ -233,6 +254,21 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
           title="切换麦克风设备后如果没自动生效,点这个手动重连"
         >
           🎙️ 重连麦
+        </button>
+        <button
+          onClick={handleToggleVp}
+          className={`px-3 py-1.5 text-sm rounded transition ${
+            vpEnabled
+              ? 'bg-blue-50 hover:bg-blue-100 text-blue-700'
+              : 'bg-gray-100 hover:bg-gray-200 text-gray-600'
+          }`}
+          title={
+            vpEnabled
+              ? '麦克风降噪开启中 (回声消除 + 降噪 + AGC)。点击关闭。'
+              : '麦克风降噪已关闭。点击开启。'
+          }
+        >
+          {vpEnabled ? '🎙️ 降噪开' : '🎙️ 降噪关'}
         </button>
         <button
           onClick={() => setSuggestEnabled(!suggestEnabled)}

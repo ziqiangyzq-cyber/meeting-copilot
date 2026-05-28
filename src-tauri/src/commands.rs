@@ -867,12 +867,18 @@ pub async fn set_voice_processing(
     enabled: bool,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<(), String> {
+    // 1. Save preference (so next meeting picks it up)
     if let Err(e) = crate::config::save_voice_processing(enabled) {
         tracing::warn!("save voice_processing (kc): {e} — proceeding with in-memory only");
     }
+    // 2. Update in-memory config
     let mut cfg = state.orchestrator.current_config();
     cfg.voice_processing_enabled = enabled;
     state.orchestrator.reconfigure(&cfg);
+    // 3. Apply live if a meeting is running
+    if let Err(e) = state.orchestrator.apply_voice_processing_live(enabled).await {
+        tracing::warn!("apply_voice_processing_live failed: {e}");
+    }
     Ok(())
 }
 

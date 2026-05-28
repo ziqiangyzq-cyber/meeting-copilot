@@ -36,6 +36,11 @@ func handleCommand(_ cmd: Command) async {
         logInfo("pong")
     case "restart_mic":
         micCapture.manualRestart()
+    case "set_voice_processing":
+        let enabled = cmd.voice_processing ?? true
+        logInfo("set_voice_processing: \(enabled) (will restart mic)")
+        micCapture.setVoiceProcessingEnabled(enabled)
+        micCapture.manualRestart()
     default:
         logError("unknown command: \(cmd.cmd)")
     }

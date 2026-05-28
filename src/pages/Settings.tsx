@@ -534,7 +534,7 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
                 <br />
                 ⚠️ 如果你发现轻声议论 / 远场说话被压掉,关掉这个开关。
                 <br />
-                修改后 <strong>下次会议生效</strong>。
+                <strong>会议进行中也可以切换,立即生效</strong>(MeetingView 顶栏也有快捷开关)。
               </div>
             </div>
           </label>

@@ -304,6 +304,19 @@ impl Orchestrator {
         }
     }
 
+    /// Apply voice processing setting LIVE if a meeting is running.
+    /// Returns Ok regardless — if no meeting, this is a no-op (config update is done separately).
+    pub async fn apply_voice_processing_live(&self, enabled: bool) -> Result<()> {
+        let mut state = self.inner.lock().await;
+        if let Some(helper) = state.helper.as_mut() {
+            helper.send_set_voice_processing(enabled).await?;
+            tracing::info!("sent set_voice_processing={} to AudioHelper (live)", enabled);
+        } else {
+            tracing::info!("no active meeting; set_voice_processing will apply on next start");
+        }
+        Ok(())
+    }
+
     /// Manually trigger a suggestion. Returns Err if no meeting is active.
     pub async fn trigger_suggestion(&self, app: tauri::AppHandle) -> Result<()> {
         let engine = {

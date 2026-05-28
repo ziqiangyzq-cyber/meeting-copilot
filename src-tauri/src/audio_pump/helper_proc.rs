@@ -64,6 +64,17 @@ impl HelperProc {
         Ok(())
     }
 
+    /// Send live set_voice_processing command (AudioHelper will restart mic).
+    pub async fn send_set_voice_processing(&mut self, enabled: bool) -> Result<()> {
+        let line = format!(
+            "{{\"cmd\":\"set_voice_processing\",\"voice_processing\":{}}}\n",
+            enabled
+        );
+        self.stdin.write_all(line.as_bytes()).await?;
+        self.stdin.flush().await?;
+        Ok(())
+    }
+
     /// Take ownership of the frame receiver. Returns None if already taken.
     pub fn take_frames(&mut self) -> Option<mpsc::Receiver<AudioFrame>> {
         self.frames_rx.take()
