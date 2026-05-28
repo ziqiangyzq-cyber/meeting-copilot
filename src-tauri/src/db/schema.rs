@@ -79,6 +79,7 @@ pub fn init(conn: &Connection) -> Result<()> {
     // Idempotent migration: add focus_points column to meetings if missing.
     // SQLite errors on duplicate column add; we swallow that specific error.
     let _ = conn.execute("ALTER TABLE meetings ADD COLUMN focus_points TEXT", []);
+    let _ = conn.execute("ALTER TABLE meetings ADD COLUMN notes TEXT", []);
 
     Ok(())
 }

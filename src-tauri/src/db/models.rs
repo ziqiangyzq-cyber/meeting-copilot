@@ -12,6 +12,7 @@ pub struct Meeting {
     pub audio_path: Option<String>,
     pub metadata: Option<String>,
     pub focus_points: Option<String>,
+    pub notes: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

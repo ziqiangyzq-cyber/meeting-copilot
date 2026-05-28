@@ -87,6 +87,94 @@ pub async fn update_focus_points(
 }
 
 #[tauri::command]
+pub async fn update_meeting_notes(
+    meeting_id: String,
+    notes: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let db = state.orchestrator.db();
+    let conn = db.conn();
+    let value: Option<String> = if notes.trim().is_empty() {
+        None
+    } else {
+        Some(notes)
+    };
+    conn.execute(
+        "UPDATE meetings SET notes = ? WHERE id = ?",
+        params![value, meeting_id],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn export_minutes_docx(
+    markdown: String,
+    save_path: String,
+) -> std::result::Result<(), String> {
+    use docx_rs::*;
+
+    let mut docx = Docx::new();
+
+    for line in markdown.lines() {
+        let line = line.trim_end();
+        if line.is_empty() {
+            docx = docx.add_paragraph(Paragraph::new());
+            continue;
+        }
+
+        if let Some(stripped) = line.strip_prefix("# ") {
+            docx = docx.add_paragraph(
+                Paragraph::new().add_run(Run::new().add_text(stripped).size(36).bold()),
+            );
+        } else if let Some(stripped) = line.strip_prefix("## ") {
+            docx = docx.add_paragraph(
+                Paragraph::new().add_run(Run::new().add_text(stripped).size(28).bold()),
+            );
+        } else if let Some(stripped) = line.strip_prefix("### ") {
+            docx = docx.add_paragraph(
+                Paragraph::new().add_run(Run::new().add_text(stripped).size(24).bold()),
+            );
+        } else if let Some(stripped) = line.strip_prefix("- [ ] ") {
+            docx = docx.add_paragraph(
+                Paragraph::new().add_run(Run::new().add_text(format!("☐ {}", stripped))),
+            );
+        } else if let Some(stripped) = line.strip_prefix("- [x] ") {
+            docx = docx.add_paragraph(
+                Paragraph::new().add_run(Run::new().add_text(format!("☑ {}", stripped))),
+            );
+        } else if let Some(stripped) = line.strip_prefix("- ") {
+            docx = docx.add_paragraph(
+                Paragraph::new().add_run(Run::new().add_text(format!("• {}", stripped))),
+            );
+        } else if let Some(stripped) = line.strip_prefix("**") {
+            if let Some(end) = stripped.find("**") {
+                let label = &stripped[..end];
+                let rest = &stripped[end + 2..];
+                docx = docx.add_paragraph(
+                    Paragraph::new()
+                        .add_run(Run::new().add_text(label).bold())
+                        .add_run(Run::new().add_text(rest)),
+                );
+            } else {
+                docx = docx
+                    .add_paragraph(Paragraph::new().add_run(Run::new().add_text(line)));
+            }
+        } else {
+            docx = docx.add_paragraph(Paragraph::new().add_run(Run::new().add_text(line)));
+        }
+    }
+
+    let file = std::fs::File::create(&save_path)
+        .map_err(|e| format!("create file: {e}"))?;
+    docx.build()
+        .pack(file)
+        .map_err(|e| format!("docx pack: {e}"))?;
+
+    Ok(())
+}
+
+#[tauri::command]
 pub async fn ingest_material(
     meeting_id: String,
     file_path: String,
@@ -407,7 +495,7 @@ pub async fn get_meeting_detail(
 
     let meeting: Meeting = conn
         .query_row(
-            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points FROM meetings WHERE id = ?",
+            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points, notes FROM meetings WHERE id = ?",
             [&meeting_id],
             |r| {
                 Ok(Meeting {
@@ -421,6 +509,7 @@ pub async fn get_meeting_detail(
                     audio_path: r.get(7)?,
                     metadata: r.get(8)?,
                     focus_points: r.get(9)?,
+                    notes: r.get(10)?,
                 })
             },
         )

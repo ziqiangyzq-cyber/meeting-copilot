@@ -4,7 +4,8 @@ use std::fmt::Write;
 const SYSTEM_PROMPT: &str = r#"你是用户的会议纪要生成助手。
 用户刚开完一场会议(类型不定 — 工作 / 客户 / 评审 / 私人沟通都有可能)。
 不要预设行业,根据会议元数据 + 转写内容判断场景。
-你的任务:基于全场转写 + AI 给过的建议历史 + 会议元数据,生成一份结构化中文 Markdown 纪要。
+你的任务:基于全场转写 + AI 给过的建议历史 + 会议元数据 + 用户开会期间的快速笔记,生成一份结构化中文 Markdown 纪要。
+**如果用户提供了快速笔记,这些笔记是用户开会时手敲的锚点 — 纪要必须以这些为核心展开,不能忽视。**
 
 ## 你的产出格式(严格按以下结构,不要省略任何 ## 标题)
 
@@ -79,6 +80,16 @@ pub fn user_prompt(ctx: &MinutesContext) -> String {
     if let Some(f) = &ctx.meeting.focus_points {
         if !f.trim().is_empty() {
             let _ = writeln!(out, "- 本次重点关注: {}", f.trim());
+        }
+    }
+    if let Some(notes) = &ctx.meeting.notes {
+        if !notes.trim().is_empty() {
+            let _ = writeln!(
+                out,
+                "- 用户开会期间的快速笔记(以这些为锚点,纪要要围绕这些展开):"
+            );
+            let indented = notes.trim().replace('\n', "\n  ");
+            let _ = writeln!(out, "  {}", indented);
         }
     }
     let _ = writeln!(out, "- 开始: {}", fmt_ms(ctx.meeting.started_at));
@@ -175,6 +186,7 @@ mod tests {
             audio_path: None,
             metadata: None,
             focus_points: None,
+            notes: None,
         }
     }
 
@@ -244,6 +256,34 @@ mod tests {
         };
         let s = user_prompt(&ctx);
         assert!(s.contains("本次重点关注: 拿到对方对交付时间的明确承诺"));
+    }
+
+    #[test]
+    fn user_prompt_includes_notes_when_present() {
+        let mut m = sample_meeting();
+        m.notes = Some("对方接受 211 万\n下周三 demo".into());
+        let ctx = MinutesContext {
+            meeting: &m,
+            transcripts: &[],
+            suggestions: &[],
+        };
+        let s = user_prompt(&ctx);
+        assert!(s.contains("用户开会期间的快速笔记"));
+        assert!(s.contains("对方接受 211 万"));
+        assert!(s.contains("下周三 demo"));
+    }
+
+    #[test]
+    fn user_prompt_skips_notes_when_empty() {
+        let mut m = sample_meeting();
+        m.notes = Some("   ".into());
+        let ctx = MinutesContext {
+            meeting: &m,
+            transcripts: &[],
+            suggestions: &[],
+        };
+        let s = user_prompt(&ctx);
+        assert!(!s.contains("用户开会期间的快速笔记"));
     }
 
     #[test]

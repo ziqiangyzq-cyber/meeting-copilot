@@ -11,6 +11,7 @@ import {
   onMinutesToken,
   onMinutesComplete,
   onMinutesError,
+  exportMinutesDocx,
 } from '../lib/tauri-bridge';
 
 interface Props {
@@ -152,6 +153,23 @@ export function HistoryDetail({ meetingId, onBack }: Props) {
     }
   };
 
+  const handleSaveDocx = async () => {
+    if (!detail?.latest_minutes_md) return;
+    const safeName = (detail.meeting.name || 'meeting').replace(/[/\\?*:|"<>]/g, '_');
+    const fileName = `${safeName}_纪要.docx`;
+    try {
+      const path = await save({
+        defaultPath: fileName,
+        filters: [{ name: 'Word', extensions: ['docx'] }],
+      });
+      if (!path) return;
+      await exportMinutesDocx(detail.latest_minutes_md, path);
+    } catch (e) {
+      console.error('save docx failed', e);
+      alert(`保存失败: ${e}`);
+    }
+  };
+
   const fmtTime = (ms: number) => {
     const d = new Date(ms);
     return `${d.getHours().toString().padStart(2, '0')}:${d
@@ -203,6 +221,12 @@ export function HistoryDetail({ meetingId, onBack }: Props) {
                 className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
               >
                 保存为 .md
+              </button>
+              <button
+                onClick={handleSaveDocx}
+                className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+              >
+                保存为 .docx
               </button>
             </>
           )}

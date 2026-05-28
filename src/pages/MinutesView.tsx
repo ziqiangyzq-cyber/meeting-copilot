@@ -8,6 +8,7 @@ import {
   onMinutesToken,
   onMinutesComplete,
   onMinutesError,
+  exportMinutesDocx,
 } from '../lib/tauri-bridge';
 
 interface Props {
@@ -109,6 +110,23 @@ export function MinutesView({ meetingId, meetingName, onBack }: Props) {
     }
   };
 
+  const handleSaveDocx = async () => {
+    if (!markdown) return;
+    const safeName = (meetingName || 'meeting').replace(/[/\\?*:|"<>]/g, '_');
+    const fileName = `${safeName}_纪要.docx`;
+    try {
+      const path = await save({
+        defaultPath: fileName,
+        filters: [{ name: 'Word', extensions: ['docx'] }],
+      });
+      if (!path) return;
+      await exportMinutesDocx(markdown, path);
+    } catch (e) {
+      console.error('save docx failed', e);
+      alert(`保存失败: ${e}`);
+    }
+  };
+
   return (
     <div className="h-screen flex flex-col bg-white">
       <header className="px-6 py-3 border-b flex items-center gap-3 shrink-0">
@@ -134,6 +152,12 @@ export function MinutesView({ meetingId, meetingName, onBack }: Props) {
               className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
             >
               保存为 .md
+            </button>
+            <button
+              onClick={handleSaveDocx}
+              className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
+            >
+              保存为 .docx
             </button>
           </>
         )}

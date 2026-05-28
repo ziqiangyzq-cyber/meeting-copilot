@@ -54,6 +54,14 @@ export async function updateFocusPoints(meetingId: string, focusPoints: string):
   await invoke('update_focus_points', { meetingId, focusPoints });
 }
 
+export async function updateMeetingNotes(meetingId: string, notes: string): Promise<void> {
+  await invoke('update_meeting_notes', { meetingId, notes });
+}
+
+export async function exportMinutesDocx(markdown: string, savePath: string): Promise<void> {
+  await invoke('export_minutes_docx', { markdown, savePath });
+}
+
 export async function ingestMaterial(meetingId: string, filePath: string): Promise<string> {
   return await invoke<string>('ingest_material', {
     meetingId,
@@ -150,6 +158,7 @@ export interface MeetingDetail {
     audio_path: string | null;
     metadata: string | null;
     focus_points: string | null;
+    notes: string | null;
   };
   transcripts: {
     id: number;

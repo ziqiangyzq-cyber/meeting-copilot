@@ -216,6 +216,17 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
         )}
       </header>
 
+      <div className="mb-6 p-3 bg-gray-50 border border-gray-200 rounded text-xs text-gray-700">
+        <strong>🔒 隐私说明</strong>
+        <ul className="mt-1 ml-4 list-disc space-y-0.5">
+          <li>不保存任何音频文件(实时转写,音频即丢)</li>
+          <li>转写文字 → 阿里 DashScope(境内,有 DPA)</li>
+          <li>AI 建议/纪要/翻译 → 你选的 LLM provider</li>
+          <li>资料文件向量化 → 阿里 text-embedding-v3(向量入本地 SQLite,原文不出境)</li>
+          <li>API Key 存本地 JSON 文件(0600 权限),不上云</li>
+        </ul>
+      </div>
+
       {isFirstLaunch && (
         <div className="mb-6 p-4 bg-blue-50 border border-blue-200 rounded text-sm text-blue-900">
           <p className="font-medium mb-2">这个工具需要 2 个东西才能工作:</p>

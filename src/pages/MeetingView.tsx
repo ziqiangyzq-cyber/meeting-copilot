@@ -9,6 +9,7 @@ import {
   stopMeeting,
   translateText,
   updateFocusPoints,
+  updateMeetingNotes,
   restartMic,
 } from '../lib/tauri-bridge';
 
@@ -43,7 +44,9 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
     return stored === null ? true : stored === 'true';
   });
   const [focus, setFocus] = useState<string>(initialFocusPoints || '');
+  const [notes, setNotes] = useState<string>('');
   const focusTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const notesTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const accumRef = useRef<string>('');
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const translationDispatched = useRef<Set<number>>(new Set());
@@ -60,10 +63,23 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
     }, 500);
   };
 
+  // Debounced save of quick notes (500ms after last keystroke).
+  // Notes feed into the minutes generator as user anchors.
+  const handleNotesChange = (val: string) => {
+    setNotes(val);
+    if (notesTimer.current) clearTimeout(notesTimer.current);
+    notesTimer.current = setTimeout(() => {
+      updateMeetingNotes(meetingId, val).catch((e) =>
+        console.error('updateMeetingNotes failed', e),
+      );
+    }, 500);
+  };
+
   // Cleanup any pending debounce on unmount so stale saves don't fire
   useEffect(() => {
     return () => {
       if (focusTimer.current) clearTimeout(focusTimer.current);
+      if (notesTimer.current) clearTimeout(notesTimer.current);
     };
   }, []);
 
@@ -201,6 +217,12 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
     <div className="h-screen flex flex-col bg-white">
       <header className="px-6 py-3 border-b flex items-center gap-3 shrink-0">
         <h1 className="text-lg font-bold">会议进行中</h1>
+        <span
+          className="text-xs text-gray-500 flex items-center gap-1"
+          title="此 app 不保存任何音频文件,只把音频实时流式发到阿里 Paraformer 转写后立即丢弃。"
+        >
+          🔒 不录音
+        </span>
         <div className="text-xs text-gray-500">{transcripts.length} 条转写 · {suggestions.length} 条建议</div>
         <div className="flex-1" />
         <button
@@ -266,7 +288,19 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
         </section>
 
         <section className="overflow-y-auto p-4 space-y-3">
-          <h2 className="font-bold text-sm sticky top-0 bg-white pb-2 border-b">建议历史</h2>
+          <h2 className="font-bold text-sm pb-2 border-b">
+            📝 快速笔记{' '}
+            <span className="text-xs text-gray-400 font-normal">(纪要会围绕这些展开)</span>
+          </h2>
+          <textarea
+            value={notes}
+            onChange={(e) => handleNotesChange(e.target.value)}
+            placeholder={'开会时随手敲关键词、决策点、待跟进...\n\n例:\n• 对方接受了 211 万\n• 下周三 demo\n• 防火封堵规范要再核对'}
+            rows={5}
+            className="w-full px-3 py-2 border border-gray-300 rounded text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 resize-none"
+          />
+
+          <h2 className="font-bold text-sm pb-2 border-b mt-4">建议历史</h2>
 
           {currentStream && (
             <div className="p-3 bg-yellow-50 border border-yellow-200 rounded">
