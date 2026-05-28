@@ -256,3 +256,13 @@ export async function testOpenaiCompat(
 ): Promise<void> {
   await invoke('test_openai_compat', { baseUrl, model, apiKey });
 }
+
+// --- Mic voice processing toggle (echo cancel + noise suppress + AGC) ---
+
+export async function setVoiceProcessing(enabled: boolean): Promise<void> {
+  await invoke('set_voice_processing', { enabled });
+}
+
+export async function getVoiceProcessing(): Promise<boolean> {
+  return await invoke<boolean>('get_voice_processing');
+}

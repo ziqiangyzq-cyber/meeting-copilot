@@ -3,7 +3,7 @@ import Foundation
 // stdin: line-delimited JSON commands
 struct Command: Codable {
     let cmd: String
-    // extensible fields
+    let voice_processing: Bool?  // optional, only meaningful for "start"
 }
 
 // stdout: binary PCM frames

@@ -13,11 +13,11 @@ mod suggestion;
 
 use commands::{
     create_meeting, delete_meeting, export_minutes_docx, generate_minutes, get_api_key_status,
-    get_llm_status, get_meeting_detail, ingest_material, list_meetings, list_supported_files,
-    restart_mic, save_aliyun_only, save_api_keys, save_minimax_only, save_openai_compat,
-    set_suggestions_enabled, start_meeting, stop_meeting, test_aliyun_key, test_minimax_key,
-    test_openai_compat, translate_text, trigger_suggestion, update_focus_points,
-    update_meeting_notes, AppState,
+    get_llm_status, get_meeting_detail, get_voice_processing, ingest_material, list_meetings,
+    list_supported_files, restart_mic, save_aliyun_only, save_api_keys, save_minimax_only,
+    save_openai_compat, set_suggestions_enabled, set_voice_processing, start_meeting, stop_meeting,
+    test_aliyun_key, test_minimax_key, test_openai_compat, translate_text, trigger_suggestion,
+    update_focus_points, update_meeting_notes, AppState,
 };
 use config::{Config, LlmProvider};
 use db::Db;
@@ -52,6 +52,7 @@ pub fn run() {
                 llm_base_url: String::new(),
                 llm_model: String::new(),
                 llm_api_key: String::new(),
+                voice_processing_enabled: true,
             });
 
             tracing::info!(
@@ -106,7 +107,9 @@ pub fn run() {
             save_aliyun_only,
             save_minimax_only,
             save_openai_compat,
-            test_openai_compat
+            test_openai_compat,
+            set_voice_processing,
+            get_voice_processing
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -2,9 +2,11 @@ import { useEffect, useState } from 'react';
 import {
   getApiKeyStatus,
   getLlmStatus,
+  getVoiceProcessing,
   saveAliyunOnly,
   saveMinimaxOnly,
   saveOpenaiCompat,
+  setVoiceProcessing,
   testAliyunKey,
   testMinimaxKey,
   testOpenaiCompat,
@@ -49,6 +51,9 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Mic voice processing toggle
+  const [voiceProcEnabled, setVoiceProcEnabled] = useState(true);
+
   useEffect(() => {
     getApiKeyStatus().then(setStatus).catch((e) => setError(String(e)));
     getLlmStatus()
@@ -59,7 +64,18 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
         setOpenaiModel(s.current_model);
       })
       .catch((e) => setError(String(e)));
+    getVoiceProcessing().then(setVoiceProcEnabled).catch((e) => console.error(e));
   }, []);
+
+  const handleToggleVoiceProc = async (next: boolean) => {
+    setVoiceProcEnabled(next);
+    try {
+      await setVoiceProcessing(next);
+    } catch (e) {
+      console.error('setVoiceProcessing failed', e);
+      setVoiceProcEnabled(!next); // revert
+    }
+  };
 
   const handleTestAliyun = async () => {
     if (!aliyun.trim()) {
@@ -497,6 +513,31 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
               </div>
             </div>
           )}
+        </section>
+
+        {/* === 麦克风处理 === */}
+        <section className="space-y-2 pt-4 border-t">
+          <h2 className="text-sm font-semibold text-gray-700 mb-3">🎙️ 麦克风处理</h2>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={voiceProcEnabled}
+              onChange={(e) => handleToggleVoiceProc(e.target.checked)}
+              className="mt-1"
+            />
+            <div className="text-sm">
+              <div className="font-medium">启用 macOS 内置降噪 + 回声消除 + 自动音量</div>
+              <div className="text-xs text-gray-500 mt-1">
+                和 Zoom / FaceTime 用同一个底层(AVAudioEngine Voice Processing)。
+                <br />
+                ✅ 多数情况下提升转写质量(键盘/空调声减弱、扬声器漏音消除)。
+                <br />
+                ⚠️ 如果你发现轻声议论 / 远场说话被压掉,关掉这个开关。
+                <br />
+                修改后 <strong>下次会议生效</strong>。
+              </div>
+            </div>
+          </label>
         </section>
 
         {error && (

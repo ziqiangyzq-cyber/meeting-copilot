@@ -29,6 +29,8 @@ pub struct Config {
     pub llm_model: String,
     /// OpenAI-compat API key
     pub llm_api_key: String,
+    /// macOS built-in voice processing (echo cancel + noise suppress + AGC) on mic. Default ON.
+    pub voice_processing_enabled: bool,
 }
 
 const KEY_ALIYUN: &str = "ALIYUN_API_KEY";
@@ -37,6 +39,7 @@ const KEY_LLM_PROVIDER: &str = "LLM_PROVIDER";
 const KEY_LLM_BASE_URL: &str = "LLM_BASE_URL";
 const KEY_LLM_MODEL: &str = "LLM_MODEL";
 const KEY_LLM_API_KEY: &str = "LLM_API_KEY";
+const KEY_VOICE_PROCESSING: &str = "VOICE_PROCESSING_ENABLED";
 
 fn sanitize(s: String) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
@@ -85,6 +88,10 @@ impl Config {
             _ => LlmProvider::MiniMax,
         };
 
+        let voice_proc = load_raw(KEY_VOICE_PROCESSING)
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(true); // default ON
+
         match provider {
             LlmProvider::MiniMax => {
                 let Some(minimax_key) = load_one(KEY_MINIMAX) else {
@@ -97,6 +104,7 @@ impl Config {
                     llm_base_url: String::new(),
                     llm_model: String::new(),
                     llm_api_key: String::new(),
+                    voice_processing_enabled: voice_proc,
                 }))
             }
             LlmProvider::OpenAICompat => {
@@ -116,6 +124,7 @@ impl Config {
                     llm_base_url: base,
                     llm_model: model,
                     llm_api_key: key,
+                    voice_processing_enabled: voice_proc,
                 }))
             }
         }
@@ -142,5 +151,9 @@ pub fn save_llm_provider(provider: &LlmProvider) -> Result<()> {
 
 pub fn save_minimax_key(key: &str) -> Result<()> {
     keychain::set(KEY_MINIMAX, &sanitize(key.to_string()))
+}
+
+pub fn save_voice_processing(enabled: bool) -> Result<()> {
+    keychain::set(KEY_VOICE_PROCESSING, if enabled { "true" } else { "false" })
 }
 

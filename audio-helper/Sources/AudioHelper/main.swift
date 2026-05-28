@@ -17,6 +17,8 @@ func handleCommand(_ cmd: Command) async {
     switch cmd.cmd {
     case "start":
         do {
+            // Honor voice_processing flag from the start command (default true if missing)
+            micCapture.setVoiceProcessingEnabled(cmd.voice_processing ?? true)
             try await systemCapture?.start()
             try micCapture.start()
         } catch {

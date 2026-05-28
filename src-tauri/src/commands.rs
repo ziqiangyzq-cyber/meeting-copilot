@@ -853,6 +853,27 @@ pub async fn test_openai_compat(
 }
 
 #[tauri::command]
+pub async fn set_voice_processing(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    if let Err(e) = crate::config::save_voice_processing(enabled) {
+        tracing::warn!("save voice_processing (kc): {e} — proceeding with in-memory only");
+    }
+    let mut cfg = state.orchestrator.current_config();
+    cfg.voice_processing_enabled = enabled;
+    state.orchestrator.reconfigure(&cfg);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_voice_processing() -> std::result::Result<bool, String> {
+    use crate::keychain;
+    let val = keychain::get("VOICE_PROCESSING_ENABLED").ok().flatten();
+    Ok(val.map(|v| v == "true" || v == "1").unwrap_or(true)) // default ON
+}
+
+#[tauri::command]
 pub async fn test_minimax_key(key: String) -> std::result::Result<(), String> {
     let key = key.chars().filter(|c| !c.is_whitespace()).collect::<String>();
     if key.is_empty() {

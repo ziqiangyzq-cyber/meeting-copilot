@@ -53,6 +53,17 @@ impl HelperProc {
         Ok(())
     }
 
+    /// Send start command with options.
+    pub async fn send_start(&mut self, voice_processing: bool) -> Result<()> {
+        let line = format!(
+            "{{\"cmd\":\"start\",\"voice_processing\":{}}}\n",
+            voice_processing
+        );
+        self.stdin.write_all(line.as_bytes()).await?;
+        self.stdin.flush().await?;
+        Ok(())
+    }
+
     /// Take ownership of the frame receiver. Returns None if already taken.
     pub fn take_frames(&mut self) -> Option<mpsc::Receiver<AudioFrame>> {
         self.frames_rx.take()

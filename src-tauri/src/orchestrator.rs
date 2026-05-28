@@ -119,7 +119,8 @@ impl Orchestrator {
         // 1. Spawn AudioHelper
         let bin_path = locate_helper_binary(&app)?;
         let mut helper = HelperProc::spawn(bin_path).await?;
-        helper.send_cmd("start").await?;
+        let voice_processing = self.config.read().unwrap().voice_processing_enabled;
+        helper.send_start(voice_processing).await?;
 
         // 2. Connect ASR
         let (transcript_tx, mut transcript_rx) = mpsc::channel::<TranscriptEvent>(64);

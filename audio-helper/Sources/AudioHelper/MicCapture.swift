@@ -8,6 +8,7 @@ class MicCapture {
     private var isRunning = false
     private var restartScheduled = false
     private var coreAudioListenerInstalled = false
+    private var voiceProcessingEnabled: Bool = true  // default ON, overridable
 
     /// Serial queue for all mic operations. We can't use DispatchQueue.main because
     /// main.swift blocks the main thread on a semaphore (keeps the process alive
@@ -16,6 +17,12 @@ class MicCapture {
 
     init(converter: PCMConverter) {
         self.converter = converter
+    }
+
+    /// Set whether to use macOS built-in voice processing (echo cancel + noise suppress + AGC).
+    /// Call before start() or apply on next restart.
+    func setVoiceProcessingEnabled(_ enabled: Bool) {
+        self.voiceProcessingEnabled = enabled
     }
 
     func start() throws {
@@ -34,7 +41,20 @@ class MicCapture {
             logError("could not get default input device id, falling back to engine default")
         }
 
-        // 2. Install tap + start
+        // 2. Enable voice processing (echo cancel + noise suppress + AGC) on inputNode
+        //    BEFORE installing the tap. Must touch inputNode AFTER setting device.
+        if voiceProcessingEnabled {
+            do {
+                try engine.inputNode.setVoiceProcessingEnabled(true)
+                logInfo("mic voice processing enabled (echo cancel + noise suppress + AGC)")
+            } catch {
+                logError("setVoiceProcessingEnabled failed: \(error) — continuing without voice processing")
+            }
+        } else {
+            logInfo("mic voice processing DISABLED by user setting")
+        }
+
+        // 3. Install tap + start
         let input = engine.inputNode
         let inputFormat = input.outputFormat(forBus: 0)
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
