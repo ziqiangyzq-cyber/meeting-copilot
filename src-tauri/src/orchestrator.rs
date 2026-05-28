@@ -1,10 +1,10 @@
 use crate::asr::aliyun_paraformer::{AliyunParaformer, TranscriptEvent};
 use crate::asr::{ASRClient, AudioSource as AsrSource};
 use crate::audio_pump::{frame::AudioSource as PumpSource, HelperProc};
-use crate::config::Config;
+use crate::config::{Config, LlmProvider};
 use crate::db::Db;
 use crate::error::{AppError, Result};
-use crate::llm::{minimax::MiniMaxClient, LLMClient};
+use crate::llm::{minimax::MiniMaxClient, openai_compat::OpenAICompatClient, LLMClient};
 use crate::rag::embedding::EmbeddingClient;
 use crate::suggestion::{SuggestionEngine, TriggerType};
 use rusqlite::params;
@@ -37,7 +37,7 @@ struct OrchestratorState {
 impl Orchestrator {
     pub fn new(config: &Config, db: Arc<Db>) -> Self {
         let embed = Arc::new(EmbeddingClient::new(config.aliyun_api_key.clone()));
-        let llm: Arc<dyn LLMClient> = Arc::new(MiniMaxClient::new(config.minimax_api_key.clone()));
+        let llm = build_llm(config);
         Self {
             inner: Arc::new(Mutex::new(OrchestratorState {
                 helper: None,
@@ -74,21 +74,34 @@ impl Orchestrator {
         self.config.read().unwrap().minimax_api_key.clone()
     }
 
-    /// Returns true if both API keys are present in the in-memory config
-    /// (set at startup from Keychain OR via Settings save → reconfigure).
+    /// Clone the in-memory Config so commands can mutate + reconfigure cleanly.
+    pub fn current_config(&self) -> Config {
+        self.config.read().unwrap().clone()
+    }
+
+    /// Returns true if Aliyun key + provider-specific LLM credentials are all set.
     pub fn has_keys(&self) -> bool {
         let cfg = self.config.read().unwrap();
-        !cfg.aliyun_api_key.trim().is_empty() && !cfg.minimax_api_key.trim().is_empty()
+        if cfg.aliyun_api_key.trim().is_empty() {
+            return false;
+        }
+        match cfg.llm_provider {
+            LlmProvider::MiniMax => !cfg.minimax_api_key.trim().is_empty(),
+            LlmProvider::OpenAICompat => {
+                !cfg.llm_base_url.trim().is_empty()
+                    && !cfg.llm_model.trim().is_empty()
+                    && !cfg.llm_api_key.trim().is_empty()
+            }
+        }
     }
 
     pub fn reconfigure(&self, config: &Config) {
         let new_embed = Arc::new(EmbeddingClient::new(config.aliyun_api_key.clone()));
-        let new_llm: Arc<dyn LLMClient> =
-            Arc::new(MiniMaxClient::new(config.minimax_api_key.clone()));
+        let new_llm = build_llm(config);
         *self.embed.write().unwrap() = new_embed;
         *self.llm.write().unwrap() = new_llm;
         *self.config.write().unwrap() = config.clone();
-        tracing::info!("orchestrator clients reconfigured");
+        tracing::info!("orchestrator clients reconfigured (provider={:?})", config.llm_provider);
     }
 
     /// Start a meeting: spawn AudioHelper, connect ASR, init SuggestionEngine, start auto timer.
@@ -317,6 +330,17 @@ impl Orchestrator {
         }
         let _ = app.emit("suggestion_complete", ());
         Ok(())
+    }
+}
+
+fn build_llm(config: &Config) -> Arc<dyn LLMClient> {
+    match config.llm_provider {
+        LlmProvider::MiniMax => Arc::new(MiniMaxClient::new(config.minimax_api_key.clone())),
+        LlmProvider::OpenAICompat => Arc::new(OpenAICompatClient::new(
+            config.llm_base_url.clone(),
+            config.llm_api_key.clone(),
+            config.llm_model.clone(),
+        )),
     }
 }
 

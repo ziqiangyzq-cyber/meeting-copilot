@@ -1,4 +1,5 @@
 pub mod minimax;
+pub mod openai_compat;
 
 use crate::error::Result;
 use async_trait::async_trait;

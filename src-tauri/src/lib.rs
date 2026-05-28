@@ -12,12 +12,13 @@ mod rag;
 mod suggestion;
 
 use commands::{
-    create_meeting, delete_meeting, generate_minutes, get_api_key_status, get_meeting_detail,
-    ingest_material, list_meetings, list_supported_files, restart_mic, save_api_keys,
+    create_meeting, delete_meeting, generate_minutes, get_api_key_status, get_llm_status,
+    get_meeting_detail, ingest_material, list_meetings, list_supported_files, restart_mic,
+    save_aliyun_only, save_api_keys, save_minimax_only, save_openai_compat,
     set_suggestions_enabled, start_meeting, stop_meeting, test_aliyun_key, test_minimax_key,
-    translate_text, trigger_suggestion, update_focus_points, AppState,
+    test_openai_compat, translate_text, trigger_suggestion, update_focus_points, AppState,
 };
-use config::Config;
+use config::{Config, LlmProvider};
 use db::Db;
 use orchestrator::Orchestrator;
 use std::sync::Arc;
@@ -45,15 +46,24 @@ pub fn run() {
         .setup(|app| {
             let config = Config::load().unwrap_or(None).unwrap_or_else(|| Config {
                 aliyun_api_key: String::new(),
+                llm_provider: LlmProvider::default(),
                 minimax_api_key: String::new(),
+                llm_base_url: String::new(),
+                llm_model: String::new(),
+                llm_api_key: String::new(),
             });
 
             tracing::info!(
-                "startup config: aliyun_set={} (len={}), minimax_set={} (len={})",
+                "startup config: aliyun_set={} provider={:?} minimax_set={} openai_compat_set={} (base_url_len={} model_len={} key_len={})",
                 !config.aliyun_api_key.is_empty(),
-                config.aliyun_api_key.len(),
+                config.llm_provider,
                 !config.minimax_api_key.is_empty(),
-                config.minimax_api_key.len(),
+                !config.llm_base_url.is_empty()
+                    && !config.llm_model.is_empty()
+                    && !config.llm_api_key.is_empty(),
+                config.llm_base_url.len(),
+                config.llm_model.len(),
+                config.llm_api_key.len(),
             );
 
             // DB at platform-appropriate data dir
@@ -88,7 +98,12 @@ pub fn run() {
             get_api_key_status,
             save_api_keys,
             test_aliyun_key,
-            test_minimax_key
+            test_minimax_key,
+            get_llm_status,
+            save_aliyun_only,
+            save_minimax_only,
+            save_openai_compat,
+            test_openai_compat
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

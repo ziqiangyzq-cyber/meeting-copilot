@@ -526,11 +526,15 @@ pub async fn save_api_keys(
     }
     // Build Config directly from user input — don't rely on Keychain readback
     // (read can fail with ACL/permission issues even if write succeeded).
+    // Legacy save_api_keys path always selects MiniMax provider for backward compat.
     let sanitize = |s: &str| s.chars().filter(|c| !c.is_whitespace()).collect::<String>();
-    let config = crate::config::Config {
-        aliyun_api_key: sanitize(&aliyun),
-        minimax_api_key: sanitize(&minimax),
-    };
+    if let Err(e) = crate::config::save_llm_provider(&crate::config::LlmProvider::MiniMax) {
+        tracing::warn!("save_api_keys: persist provider failed: {e}");
+    }
+    let mut config = state.orchestrator.current_config();
+    config.aliyun_api_key = sanitize(&aliyun);
+    config.llm_provider = crate::config::LlmProvider::MiniMax;
+    config.minimax_api_key = sanitize(&minimax);
     tracing::info!(
         "save_api_keys: reconfiguring orchestrator (aliyun_len={}, minimax_len={})",
         config.aliyun_api_key.len(),
@@ -579,6 +583,183 @@ pub async fn test_aliyun_key(key: String) -> std::result::Result<(), String> {
         Err("权限不足(403) — 可能 text-embedding-v3 没在百炼开通".into())
     } else {
         Err(format!("HTTP {status}: {}", body.chars().take(200).collect::<String>()))
+    }
+}
+
+#[tauri::command]
+pub async fn save_aliyun_only(
+    aliyun: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    if let Err(e) = crate::config::save_aliyun_key(&aliyun) {
+        tracing::warn!("save aliyun key (kc): {e}");
+    }
+    let mut cfg = state.orchestrator.current_config();
+    cfg.aliyun_api_key = aliyun.chars().filter(|c| !c.is_whitespace()).collect();
+    state.orchestrator.reconfigure(&cfg);
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct LlmStatus {
+    pub provider: String,
+    pub minimax_set: bool,
+    pub openai_compat_set: bool,
+    pub current_base_url: String,
+    pub current_model: String,
+}
+
+#[tauri::command]
+pub async fn get_llm_status() -> std::result::Result<LlmStatus, String> {
+    use crate::keychain;
+    let provider = keychain::get("LLM_PROVIDER")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| "minimax".to_string());
+    let minimax_set = keychain::get("MINIMAX_API_KEY").ok().flatten().is_some()
+        || std::env::var("MINIMAX_API_KEY")
+            .map(|v| !v.trim().is_empty())
+            .unwrap_or(false);
+    let base = keychain::get("LLM_BASE_URL").ok().flatten().unwrap_or_default();
+    let model = keychain::get("LLM_MODEL").ok().flatten().unwrap_or_default();
+    let llm_key = keychain::get("LLM_API_KEY").ok().flatten().is_some();
+    let openai_compat_set = !base.is_empty() && !model.is_empty() && llm_key;
+    Ok(LlmStatus {
+        provider,
+        minimax_set,
+        openai_compat_set,
+        current_base_url: base,
+        current_model: model,
+    })
+}
+
+/// Save MiniMax provider. If `minimax` is empty, keep the existing key (only switch provider).
+#[tauri::command]
+pub async fn save_minimax_only(
+    minimax: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let cleaned: String = minimax.chars().filter(|c| !c.is_whitespace()).collect();
+    if !cleaned.is_empty() {
+        if let Err(e) = crate::config::save_minimax_key(&cleaned) {
+            tracing::warn!("save minimax key (kc): {e}");
+        }
+    }
+    if let Err(e) = crate::config::save_llm_provider(&crate::config::LlmProvider::MiniMax) {
+        tracing::warn!("save llm_provider (kc): {e}");
+    }
+    let mut cfg = state.orchestrator.current_config();
+    cfg.llm_provider = crate::config::LlmProvider::MiniMax;
+    if !cleaned.is_empty() {
+        cfg.minimax_api_key = cleaned;
+    }
+    state.orchestrator.reconfigure(&cfg);
+    Ok(())
+}
+
+/// Save OpenAI-compat config. base_url/model required; if `api_key` is empty, keep the existing one.
+#[tauri::command]
+pub async fn save_openai_compat(
+    base_url: String,
+    model: String,
+    api_key: String,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    let cleaned_key: String = api_key.chars().filter(|c| !c.is_whitespace()).collect();
+    let base = base_url.trim();
+    let model_trimmed = model.trim();
+
+    // Persist provider
+    if let Err(e) = crate::config::save_llm_provider(&crate::config::LlmProvider::OpenAICompat) {
+        tracing::warn!("save llm_provider (kc): {e}");
+    }
+    // Persist base + model always; key only if provided
+    if let Err(e) = crate::keychain::set("LLM_BASE_URL", base) {
+        tracing::warn!("save LLM_BASE_URL (kc): {e}");
+    }
+    if let Err(e) = crate::keychain::set("LLM_MODEL", model_trimmed) {
+        tracing::warn!("save LLM_MODEL (kc): {e}");
+    }
+    if !cleaned_key.is_empty() {
+        if let Err(e) = crate::keychain::set("LLM_API_KEY", &cleaned_key) {
+            tracing::warn!("save LLM_API_KEY (kc): {e}");
+        }
+    }
+
+    let mut cfg = state.orchestrator.current_config();
+    cfg.llm_provider = crate::config::LlmProvider::OpenAICompat;
+    cfg.llm_base_url = base.to_string();
+    cfg.llm_model = model_trimmed.to_string();
+    if !cleaned_key.is_empty() {
+        cfg.llm_api_key = cleaned_key;
+    }
+    state.orchestrator.reconfigure(&cfg);
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn test_openai_compat(
+    base_url: String,
+    model: String,
+    api_key: String,
+) -> std::result::Result<(), String> {
+    let base_url = base_url.trim().trim_end_matches('/');
+    if base_url.is_empty() {
+        return Err("Base URL 为空".into());
+    }
+    if model.trim().is_empty() {
+        return Err("Model 名为空".into());
+    }
+    let key = api_key
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    if key.is_empty() {
+        return Err("API Key 为空".into());
+    }
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(20))
+        .build()
+        .map_err(|e| format!("client: {e}"))?;
+
+    let resp = client
+        .post(format!("{base_url}/chat/completions"))
+        .header("Authorization", format!("Bearer {key}"))
+        .header("Content-Type", "application/json")
+        .json(&serde_json::json!({
+            "model": model.trim(),
+            "messages": [{"role":"user","content":"hi"}],
+            "max_tokens": 5,
+            "stream": false
+        }))
+        .send()
+        .await
+        .map_err(|e| format!("网络错误: {e}"))?;
+
+    let status = resp.status();
+    let body = resp.text().await.unwrap_or_default();
+    if status.is_success() {
+        if body.contains("\"choices\"") {
+            Ok(())
+        } else {
+            Err(format!(
+                "响应异常,无 choices 字段:{}",
+                body.chars().take(200).collect::<String>()
+            ))
+        }
+    } else if status.as_u16() == 401 {
+        Err("Key 无效(401) — 请检查 API Key".into())
+    } else if status.as_u16() == 404 {
+        Err(format!(
+            "404 — Base URL 路径可能不对 (注意尾部不要加 /chat/completions),body: {}",
+            body.chars().take(200).collect::<String>()
+        ))
+    } else {
+        Err(format!(
+            "HTTP {status}: {}",
+            body.chars().take(300).collect::<String>()
+        ))
     }
 }
 

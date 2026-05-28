@@ -207,3 +207,43 @@ export async function testAliyunKey(key: string): Promise<void> {
 export async function testMinimaxKey(key: string): Promise<void> {
   return await invoke('test_minimax_key', { key });
 }
+
+// --- LLM provider selection (MiniMax / OpenAI-compat) ---
+
+export type LlmProvider = 'minimax' | 'openai_compat';
+
+export interface LlmStatus {
+  provider: LlmProvider;
+  minimax_set: boolean;
+  openai_compat_set: boolean;
+  current_base_url: string;
+  current_model: string;
+}
+
+export async function getLlmStatus(): Promise<LlmStatus> {
+  return await invoke<LlmStatus>('get_llm_status');
+}
+
+export async function saveAliyunOnly(aliyun: string): Promise<void> {
+  await invoke('save_aliyun_only', { aliyun });
+}
+
+export async function saveMinimaxOnly(minimax: string): Promise<void> {
+  await invoke('save_minimax_only', { minimax });
+}
+
+export async function saveOpenaiCompat(
+  baseUrl: string,
+  model: string,
+  apiKey: string
+): Promise<void> {
+  await invoke('save_openai_compat', { baseUrl, model, apiKey });
+}
+
+export async function testOpenaiCompat(
+  baseUrl: string,
+  model: string,
+  apiKey: string
+): Promise<void> {
+  await invoke('test_openai_compat', { baseUrl, model, apiKey });
+}
