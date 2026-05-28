@@ -93,6 +93,45 @@ mod tests {
     }
 
     #[test]
+    fn notes_column_round_trips() {
+        let (_tmp, db) = fresh_db();
+        let conn = db.conn();
+        conn.execute(
+            "INSERT INTO meetings (id, name, started_at) VALUES (?, ?, ?)",
+            params!["m1", "test", 0_i64],
+        )
+        .unwrap();
+        // notes initially NULL
+        let initial: Option<String> = conn
+            .query_row("SELECT notes FROM meetings WHERE id = ?", ["m1"], |r| r.get(0))
+            .unwrap();
+        assert!(initial.is_none(), "notes should default to NULL");
+
+        // Update notes
+        conn.execute(
+            "UPDATE meetings SET notes = ? WHERE id = ?",
+            params!["对方接受 211 万\n下周三 demo", "m1"],
+        )
+        .unwrap();
+        let read: Option<String> = conn
+            .query_row("SELECT notes FROM meetings WHERE id = ?", ["m1"], |r| r.get(0))
+            .unwrap();
+        assert_eq!(read.as_deref(), Some("对方接受 211 万\n下周三 demo"));
+
+        // Clear notes back to NULL
+        let null_val: Option<String> = None;
+        conn.execute(
+            "UPDATE meetings SET notes = ? WHERE id = ?",
+            params![null_val, "m1"],
+        )
+        .unwrap();
+        let cleared: Option<String> = conn
+            .query_row("SELECT notes FROM meetings WHERE id = ?", ["m1"], |r| r.get(0))
+            .unwrap();
+        assert!(cleared.is_none());
+    }
+
+    #[test]
     fn chunks_vec_accepts_1024_dim_vector() {
         let (_tmp, db) = fresh_db();
         let conn = db.conn();
