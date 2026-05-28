@@ -101,10 +101,10 @@ mod tests {
 
     fn sample_meta() -> MeetingMeta {
         MeetingMeta {
-            name: "陆家嘴连桥谈判".into(),
-            project_ref: Some("陆家嘴连桥".into()),
+            name: "项目 A 谈判".into(),
+            project_ref: Some("项目 A".into()),
             purpose: Some("报价谈判".into()),
-            participants: Some("陆家嘴林总, 华东院李工".into()),
+            participants: Some("客户方林总, 合作方李工".into()),
             focus_points: None,
         }
     }
@@ -117,26 +117,26 @@ mod tests {
             RetrievedChunk {
                 chunk_id: 1,
                 material_id: "m1".into(),
-                file_name: "陆家嘴报价单.md".into(),
+                file_name: "测试报价单.md".into(),
                 text: "合同总价 211 万,8 个阶段全顾问服务".into(),
                 distance: 0.5,
             },
             RetrievedChunk {
                 chunk_id: 2,
                 material_id: "m1".into(),
-                file_name: "陆家嘴报价单.md".into(),
-                text: "KPF 顾问同类项目报价约 240 万".into(),
+                file_name: "测试报价单.md".into(),
+                text: "竞争对手同类项目报价约 240 万".into(),
                 distance: 0.7,
             },
         ];
 
         let out = user_prompt(&meta, transcript, &chunks);
 
-        assert!(out.contains("会议名:陆家嘴连桥谈判"));
+        assert!(out.contains("会议名:项目 A 谈判"));
         assert!(out.contains("会议目的:报价谈判"));
         assert!(out.contains("对方: 你们报价比同行高"));
         assert!(out.contains("[1] 合同总价 211 万"));
-        assert!(out.contains("(来源:陆家嘴报价单.md)"));
+        assert!(out.contains("(来源:测试报价单.md)"));
         assert!(out.contains("看当下"));
     }
 

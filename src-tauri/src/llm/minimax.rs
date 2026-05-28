@@ -209,7 +209,7 @@ mod tests {
 
         let messages = vec![
             Message::system("你是一个友好的中文助手。回答简短,不超过 30 字。"),
-            Message::user("用一句话介绍 EFC 创羿幕墙顾问公司。"),
+            Message::user("用一句话介绍'实时会议 AI 助理'这个产品。"),
         ];
 
         let handle = tokio::spawn(async move { client.stream(messages, tx).await });
@@ -233,7 +233,7 @@ mod tests {
                 let (tx, mut rx) = mpsc::channel::<String>(64);
                 let messages = vec![
                     Message::system("你是一个友好的中文助手。回答简短,不超过 30 字。"),
-                    Message::user("用一句话介绍 EFC 创羿幕墙顾问公司。"),
+                    Message::user("用一句话介绍'实时会议 AI 助理'这个产品。"),
                 ];
                 let handle = tokio::spawn(async move { client.stream(messages, tx).await });
                 let mut accumulated2 = String::new();

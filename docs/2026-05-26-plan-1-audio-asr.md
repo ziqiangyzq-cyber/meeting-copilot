@@ -1,5 +1,7 @@
 # meeting-copilot Plan 1 — 音频抓取 + 实时转写最小通路
 
+> Original implementation plan. Project-specific business references neutralized for public release.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** 用户能在 Tauri app 里点"开始" → 同时抓系统音频和麦克风 → 实时看到中英文转写文字滚动 → 点"结束"。这是整个 meeting-copilot 项目的最小可工作通路,跑通后再加 RAG / 建议 / 纪要。
@@ -127,7 +129,7 @@ src-tauri/target/
 ```markdown
 # meeting-copilot
 
-EFC 会议 AI 助理 — 实时会议语音转写 + 智能建议 + 自动纪要。
+会议 AI 助理 — 实时会议语音转写 + 智能建议 + 自动纪要。
 
 详见 [Design v1.0](docs/2026-05-26-design.md)。
 
@@ -1533,7 +1535,7 @@ mod tests;
 ```bash
 # 用 macOS say 命令生成中文测试音频
 mkdir -p tests/fixtures
-say -v Tingting -o /tmp/cn.aiff "今天的会议主要讨论陆家嘴连桥项目的报价方案。客户希望我们能在211万的基础上做一定的调整。"
+say -v Tingting -o /tmp/cn.aiff "今天的会议主要讨论某项目的报价方案。客户希望我们能在211万的基础上做一定的调整。"
 # 转 16kHz mono WAV
 ffmpeg -i /tmp/cn.aiff -ar 16000 -ac 1 -sample_fmt s16 tests/fixtures/chinese_30s.wav -y
 ```
@@ -1546,7 +1548,7 @@ cd src-tauri
 cargo test --test connect_and_get_one_transcript -- --ignored --nocapture
 ```
 
-**预期**:控制台输出转写文字,包含"陆家嘴"等关键词。
+**预期**:控制台输出转写文字,包含"项目"等关键词。
 
 如果失败,看错误信息:
 - `401 Unauthorized` → API key 不对
@@ -2040,7 +2042,7 @@ git commit -m "test: end-to-end audio capture + paraformer asr verified"
 **所有 Task 0-10 完成** + **Task 10 Step 6 验收点全过** = Plan 1 完成。
 
 **Plan 1 完成后下一步**:
-1. 跟 Zion 演示 + 5-10 分钟真实试用
+1. 跟用户演示 + 5-10 分钟真实试用
 2. 反馈调整(可能需要修阿里 Paraformer 协议、UI 调整、AudioHelper 稳定性)
 3. 一切 OK 后开始写 Plan 2(RAG + 浮窗智能建议)
 

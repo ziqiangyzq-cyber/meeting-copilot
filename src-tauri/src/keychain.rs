@@ -2,6 +2,8 @@ use crate::error::{AppError, Result};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+// Historical bundle identifier — kept for backward compatibility with existing installs.
+// Does not imply any organizational affiliation.
 const APP_DIR_NAME: &str = "com.efc.meeting-copilot";
 const KEYS_FILE: &str = "keys.json";
 

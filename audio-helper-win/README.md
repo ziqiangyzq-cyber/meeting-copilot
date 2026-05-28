@@ -38,4 +38,4 @@ Identical to the macOS Swift version:
 
 ## License
 
-EFC internal.
+MIT — see [LICENSE](../LICENSE) at the repo root.

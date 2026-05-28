@@ -1,5 +1,7 @@
 # meeting-copilot Plan 2 — RAG + 浮窗智能建议
 
+> Original implementation plan. Project-specific business references neutralized for public release.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development to implement this plan task-by-task.
 
 **Goal:** 在 Plan 1 实时转写基础上加 RAG(会议前丢资料 → 切块 + embedding → SQLite)+ 浮窗智能混合建议(每 15-30s 自动 / 快捷键召唤 → 拼 prompt → MiniMax 流式 → 浮窗卡片渲染)。跑完 = "可演示的会议助理 MVP"。
@@ -332,12 +334,12 @@ async fn embed_chinese_sentences() {
     let key = std::env::var("ALIYUN_API_KEY").unwrap();
     let client = EmbeddingClient::new(key);
     let vecs = client.embed_batch(&[
-        "陆家嘴连桥项目报价".into(),
-        "EFC 幕墙顾问服务".into(),
+        "项目 A 的预算估算".into(),
+        "产品功能模块".into(),
     ]).await.unwrap();
     assert_eq!(vecs.len(), 2);
     assert_eq!(vecs[0].len(), 1024);
-    // 相似度应该 > 0.5(都跟 EFC 业务相关)
+    // 相似度应该 > 0.5(同领域业务相关)
     let sim = cosine(&vecs[0], &vecs[1]);
     assert!(sim > 0.3, "expected similar, got {sim}");
 }
@@ -424,7 +426,7 @@ pub async fn retrieve(
 
 - [ ] **Step 3: 集成测试**
 
-会议 m1 → ingest 一个含"陆家嘴报价 211 万"的 .md → 检索 query "对方说报价高" → 验证 top-1 是这条 chunk。
+会议 m1 → ingest 一个含"项目报价 211 万"的 .md → 检索 query "对方说报价高" → 验证 top-1 是这条 chunk。
 
 - [ ] **Step 4: Commit**
 
@@ -495,8 +497,8 @@ pub fn build_prompt(
     chunks: &[RetrievedChunk],
 ) -> (String, String) {
     let system = r#"
-你是 EFC 创羿幕墙顾问公司合伙人杨自强的会议 AI 助理。
-他在跟客户/建筑师/总包谈判或评审,你帮他做下一步决策辅助。
+你是用户的会议 AI 助理。
+他在跟客户 / 合作方 / 团队谈判或评审,你帮他做下一步决策辅助。
 
 ## 你的输出风格(智能混合)
 
@@ -793,12 +795,12 @@ Rust 侧 + JS 侧绑定 Cmd+Shift+M → 调 trigger_suggestion command。
 
 - [ ] **Step 1: 准备 fixtures**
 
-写一个测试用 markdown `tests/fixtures/陆家嘴报价单.md`(虚拟内容,包含 211 万 / 8 阶段 / EFC 服务范围等),会议中用。
+写一个测试用 markdown `tests/fixtures/测试报价单.md`(虚拟内容,包含 211 万 / 8 阶段 / 服务范围等),会议中用。
 
 - [ ] **Step 2: 跑一次真实流程**
 
 1. `pnpm tauri dev`
-2. setup 页输入会议名 "陆家嘴谈判模拟" + 拖入 fixture 文件
+2. setup 页输入会议名 "测试谈判模拟" + 拖入 fixture 文件
 3. 等索引完成
 4. 点"开始会议" → 浮窗出现
 5. 播放音频或自己说话 "对方说我们报价高,你能不能压一压"

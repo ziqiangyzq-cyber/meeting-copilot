@@ -110,7 +110,7 @@ mod tests {
     #[test]
     fn long_text_multiple_chunks_with_overlap() {
         // Generate ~2000 chars of Chinese text with sentence boundaries every ~50 chars
-        let sentence = "陆家嘴连桥项目报价方案要重新审视。"; // 18 chars
+        let sentence = "本项目的整体方案需要重新审视一下。"; // 18 chars
         let text: String = std::iter::repeat(sentence).take(120).collect(); // ~2160 chars
         let chunks = chunk(&text, 500, 50);
 

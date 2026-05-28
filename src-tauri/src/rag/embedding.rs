@@ -144,13 +144,13 @@ mod tests {
         let key = std::env::var("ALIYUN_API_KEY").expect("ALIYUN_API_KEY not set");
         let client = EmbeddingClient::new(key);
 
-        // 3 sentences:
-        //   0: 陆家嘴报价(EFC business topic)
-        //   1: EFC 幕墙顾问(same business topic, different wording)
+        // test that semantically similar texts have higher cosine sim than unrelated ones:
+        //   0: 项目预算估算(product topic)
+        //   1: 产品功能模块(same product topic, different wording)
         //   2: 今天天气真好(unrelated topic)
         let texts = vec![
-            "陆家嘴连桥项目报价 211 万".to_string(),
-            "EFC 幕墙顾问服务涵盖 8 个阶段".to_string(),
+            "项目 A 的预算估算约 211 万".to_string(),
+            "我们的产品涵盖 8 大功能模块".to_string(),
             "今天的天气很好,我想去公园散步".to_string(),
         ];
 
@@ -164,8 +164,8 @@ mod tests {
         let sim_business = cosine(&vecs[0], &vecs[1]);
         let sim_unrelated = cosine(&vecs[0], &vecs[2]);
 
-        println!("similarity(陆家嘴报价, EFC 幕墙)   = {sim_business:.4}");
-        println!("similarity(陆家嘴报价, 天气真好)    = {sim_unrelated:.4}");
+        println!("similarity(预算估算, 产品功能)   = {sim_business:.4}");
+        println!("similarity(预算估算, 天气真好)    = {sim_unrelated:.4}");
 
         // Business-related sentences should be more similar than unrelated ones.
         // Don't assert specific values (they depend on the model); just relative ordering.

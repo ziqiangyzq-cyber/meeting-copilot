@@ -13,20 +13,20 @@ mod integration {
 
     fn make_fixture() -> (tempfile::TempDir, std::path::PathBuf) {
         let dir = tempfile::tempdir().unwrap();
-        let path = dir.path().join("陆家嘴报价单.md");
-        let content = r#"# 陆家嘴连桥项目报价单 v3
+        let path = dir.path().join("测试报价单.md");
+        let content = r#"# 测试项目报价单 v3
 
 ## 服务范围
-EFC 提供 8 个阶段全顾问服务,包括方案设计、扩初设计、施工图设计、招标配合、施工配合、竣工验收等。
+本项目提供 8 个阶段全流程顾问服务,包括方案设计、扩初设计、施工图设计、招标配合、施工配合、竣工验收。
 
 ## 报价
-合同总价 211 万元人民币,分 6 期支付,首付 30%。
+合同总价 211 万元人民币,分 6 期支付,首付 30%。底线价 180 万。
 
 ## 同行参考
-KPF 顾问同类项目报价约 240 万,Permasteelisa 设计咨询约 280 万。
+同类项目竞争对手报价区间 180-280 万。
 
 ## 关键节点
-预计 2026 年 7 月完成扩初阶段,2026 年 12 月完成施工图。
+预计 7 个月完成扩初阶段,12 个月完成施工图。
 "#;
         let mut f = std::fs::File::create(&path).unwrap();
         f.write_all(content.as_bytes()).unwrap();
@@ -49,7 +49,7 @@ KPF 顾问同类项目报价约 240 万,Permasteelisa 设计咨询约 280 万。
             let conn = db.conn();
             conn.execute(
                 "INSERT INTO meetings (id, name, started_at) VALUES (?, ?, ?)",
-                params![meeting_id, "陆家嘴谈判", 0_i64],
+                params![meeting_id, "测试项目谈判", 0_i64],
             )
             .unwrap();
         }
@@ -68,7 +68,7 @@ KPF 顾问同类项目报价约 240 万,Permasteelisa 设计咨询约 280 万。
         // 4. Push some transcript events simulating an active meeting
         let events = vec![
             (AudioSource::System, "你们的报价比同行高了 20% 啊"),
-            (AudioSource::System, "我看 KPF 那边大概只要 180 万"),
+            (AudioSource::System, "我看竞争对手那边大概只要 180 万"),
             (AudioSource::Mic, "我们的服务范围跟他们不一样"),
         ];
         for (src, text) in events {

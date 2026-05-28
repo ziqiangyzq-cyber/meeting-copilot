@@ -102,9 +102,9 @@ mod tests {
 
     #[test]
     fn parses_md() {
-        let (_dir, path) = write_temp("# Heading\n\n陆家嘴报价 211 万。", "md");
+        let (_dir, path) = write_temp("# Heading\n\n测试项目报价 211 万。", "md");
         let text = parse(&path).unwrap();
-        assert!(text.contains("陆家嘴"));
+        assert!(text.contains("测试项目"));
         assert!(text.contains("211"));
     }
 
@@ -125,17 +125,17 @@ mod tests {
         use docx_rs::*;
         let docx = Docx::new()
             .add_paragraph(
-                Paragraph::new().add_run(Run::new().add_text("陆家嘴连桥项目报价 211 万")),
+                Paragraph::new().add_run(Run::new().add_text("测试项目报价 211 万")),
             )
             .add_paragraph(
-                Paragraph::new().add_run(Run::new().add_text("EFC 幕墙顾问服务范围 8 个阶段")),
+                Paragraph::new().add_run(Run::new().add_text("产品功能 8 大模块")),
             );
         let file = std::fs::File::create(&path).unwrap();
         docx.build().pack(file).unwrap();
 
         let text = parse(&path).unwrap();
-        assert!(text.contains("陆家嘴"), "expected 陆家嘴 in: {text}");
-        assert!(text.contains("EFC"), "expected EFC in: {text}");
+        assert!(text.contains("测试项目"), "expected 测试项目 in: {text}");
+        assert!(text.contains("产品功能"), "expected 产品功能 in: {text}");
     }
 
     #[test]
