@@ -102,7 +102,7 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
           disabled={disabled}
           rows={2}
           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 text-sm"
-          placeholder=""
+          placeholder={"开会前在这里写本次特别关注的技术点,AI 会围绕这些给提示。\n例:防火分区合规性 / 节点构造的耐久性 / 跟结构院的接口边界 / 核对图纸 vs 模型一致性"}
         />
       </div>
 
