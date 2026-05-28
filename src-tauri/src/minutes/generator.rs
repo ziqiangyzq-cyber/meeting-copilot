@@ -27,6 +27,10 @@ impl MinutesGenerator {
         // Load meeting + transcripts + suggestions
         let (meeting, transcripts, suggestions) = self.load_context(meeting_id)?;
 
+        let template = crate::templates::get_by_id(
+            meeting.template_id.as_deref().unwrap_or("default"),
+        );
+
         let ctx = MinutesContext {
             meeting: &meeting,
             transcripts: &transcripts,
@@ -34,7 +38,7 @@ impl MinutesGenerator {
         };
 
         let system = system_prompt();
-        let user = user_prompt(&ctx);
+        let user = user_prompt(&ctx, &template);
 
         // Stream via LLM, accumulating to return at end
         let (tx, mut rx) = mpsc::channel::<String>(256);
@@ -73,7 +77,7 @@ impl MinutesGenerator {
         let conn = self.db.conn();
 
         let meeting: Meeting = conn.query_row(
-            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points, notes FROM meetings WHERE id = ?",
+            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points, notes, template_id FROM meetings WHERE id = ?",
             [meeting_id],
             |r| Ok(Meeting {
                 id: r.get(0)?,
@@ -87,6 +91,7 @@ impl MinutesGenerator {
                 metadata: r.get(8)?,
                 focus_points: r.get(9)?,
                 notes: r.get(10)?,
+                template_id: r.get(11)?,
             }),
         )?;
 

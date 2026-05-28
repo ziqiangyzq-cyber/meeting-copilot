@@ -23,6 +23,7 @@ pub struct MeetingSummary {
     pub transcript_count: i64,
     pub suggestion_count: i64,
     pub has_minutes: bool,
+    pub template_id: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -45,6 +46,7 @@ pub async fn create_meeting(
     purpose: Option<String>,
     participants: Option<String>,
     focus_points: Option<String>,
+    template_id: Option<String>,
     state: tauri::State<'_, AppState>,
 ) -> std::result::Result<String, String> {
     let meeting_id = Uuid::new_v4().simple().to_string();
@@ -56,12 +58,17 @@ pub async fn create_meeting(
     let db = state.orchestrator.db();
     let conn = db.conn();
     conn.execute(
-        "INSERT INTO meetings (id, name, project_ref, purpose, participants, started_at, focus_points) VALUES (?, ?, ?, ?, ?, ?, ?)",
-        params![meeting_id, name, project_ref, purpose, participants, now, focus_points],
+        "INSERT INTO meetings (id, name, project_ref, purpose, participants, started_at, focus_points, template_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        params![meeting_id, name, project_ref, purpose, participants, now, focus_points, template_id],
     )
     .map_err(|e| e.to_string())?;
 
     Ok(meeting_id)
+}
+
+#[tauri::command]
+pub async fn list_templates() -> std::result::Result<Vec<crate::templates::MeetingTemplate>, String> {
+    Ok(crate::templates::all_templates())
 }
 
 #[tauri::command]
@@ -406,7 +413,8 @@ pub async fn list_meetings(
                 m.id, m.name, m.project_ref, m.purpose, m.started_at, m.ended_at,
                 (SELECT COUNT(*) FROM transcripts t WHERE t.meeting_id = m.id AND t.is_final = 1) AS transcript_count,
                 (SELECT COUNT(*) FROM suggestions s WHERE s.meeting_id = m.id) AS suggestion_count,
-                (SELECT COUNT(*) FROM minutes mn WHERE mn.meeting_id = m.id) AS minutes_count
+                (SELECT COUNT(*) FROM minutes mn WHERE mn.meeting_id = m.id) AS minutes_count,
+                m.template_id
              FROM meetings m
              ORDER BY m.started_at DESC",
         )
@@ -429,6 +437,7 @@ pub async fn list_meetings(
                 transcript_count: r.get(6)?,
                 suggestion_count: r.get(7)?,
                 has_minutes: minutes_count > 0,
+                template_id: r.get(9)?,
             })
         })
         .map_err(|e| e.to_string())?;
@@ -495,7 +504,7 @@ pub async fn get_meeting_detail(
 
     let meeting: Meeting = conn
         .query_row(
-            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points, notes FROM meetings WHERE id = ?",
+            "SELECT id, name, project_ref, purpose, participants, started_at, ended_at, audio_path, metadata, focus_points, notes, template_id FROM meetings WHERE id = ?",
             [&meeting_id],
             |r| {
                 Ok(Meeting {
@@ -510,6 +519,7 @@ pub async fn get_meeting_detail(
                     metadata: r.get(8)?,
                     focus_points: r.get(9)?,
                     notes: r.get(10)?,
+                    template_id: r.get(11)?,
                 })
             },
         )

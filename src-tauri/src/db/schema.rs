@@ -80,6 +80,7 @@ pub fn init(conn: &Connection) -> Result<()> {
     // SQLite errors on duplicate column add; we swallow that specific error.
     let _ = conn.execute("ALTER TABLE meetings ADD COLUMN focus_points TEXT", []);
     let _ = conn.execute("ALTER TABLE meetings ADD COLUMN notes TEXT", []);
+    let _ = conn.execute("ALTER TABLE meetings ADD COLUMN template_id TEXT", []);
 
     Ok(())
 }

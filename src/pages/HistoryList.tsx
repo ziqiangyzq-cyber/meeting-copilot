@@ -6,6 +6,12 @@ interface Props {
   onBack: () => void;
 }
 
+const TEMPLATE_BADGE: Record<string, string> = {
+  technical_review: '🔍 评审',
+  coordination: '🔗 协调',
+  field_discussion: '🏗️ 现场',
+};
+
 export function HistoryList({ onSelect, onBack }: Props) {
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [loading, setLoading] = useState(true);
@@ -104,6 +110,11 @@ export function HistoryList({ onSelect, onBack }: Props) {
                   {m.has_minutes && (
                     <span className="text-xs px-1.5 py-0.5 bg-green-100 text-green-700 rounded">
                       📝 有纪要
+                    </span>
+                  )}
+                  {m.template_id && TEMPLATE_BADGE[m.template_id] && (
+                    <span className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded">
+                      {TEMPLATE_BADGE[m.template_id]}
                     </span>
                   )}
                 </div>

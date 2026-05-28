@@ -31,6 +31,19 @@ export interface MeetingDraft {
   purpose?: string;
   participants?: string;
   focus_points?: string;
+  template_id?: string;
+}
+
+export interface MeetingTemplate {
+  id: string;
+  display_name: string;
+  default_purpose: string;
+  focus_placeholder: string;
+  minutes_schema: string;
+}
+
+export async function listTemplates(): Promise<MeetingTemplate[]> {
+  return await invoke<MeetingTemplate[]>('list_templates');
 }
 
 export interface MaterialProgressEvent {
@@ -47,6 +60,7 @@ export async function createMeeting(draft: MeetingDraft): Promise<string> {
     purpose: draft.purpose,
     participants: draft.participants,
     focusPoints: draft.focus_points,
+    templateId: draft.template_id,
   });
 }
 
@@ -144,6 +158,7 @@ export interface MeetingSummary {
   transcript_count: number;
   suggestion_count: number;
   has_minutes: boolean;
+  template_id: string | null;
 }
 
 export interface MeetingDetail {
@@ -159,6 +174,7 @@ export interface MeetingDetail {
     metadata: string | null;
     focus_points: string | null;
     notes: string | null;
+    template_id: string | null;
   };
   transcripts: {
     id: number;

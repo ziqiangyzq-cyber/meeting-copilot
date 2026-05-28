@@ -1,10 +1,13 @@
-import { useState } from 'react';
-import { MeetingDraft } from '../lib/tauri-bridge';
+import { useEffect, useState } from 'react';
+import { MeetingDraft, MeetingTemplate, listTemplates } from '../lib/tauri-bridge';
 
 interface Props {
   onSubmit: (draft: MeetingDraft) => void;
   disabled?: boolean;
 }
+
+const DEFAULT_FOCUS_PLACEHOLDER =
+  '开会前在这里写本次特别关注的技术点,AI 会围绕这些给提示。\n例:防火分区合规性 / 节点构造的耐久性 / 跟结构院的接口边界 / 核对图纸 vs 模型一致性';
 
 export function MeetingForm({ onSubmit, disabled }: Props) {
   const [name, setName] = useState('');
@@ -12,6 +15,29 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
   const [purpose, setPurpose] = useState('');
   const [participants, setParticipants] = useState('');
   const [focusPoints, setFocusPoints] = useState('');
+  const [templates, setTemplates] = useState<MeetingTemplate[]>([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string>('default');
+
+  useEffect(() => {
+    listTemplates()
+      .then(setTemplates)
+      .catch((e) => console.error('listTemplates failed', e));
+  }, []);
+
+  // When template changes, prefill purpose IF user hasn't typed anything yet.
+  // Don't overwrite user's typed focus_points — only the placeholder changes.
+  useEffect(() => {
+    const tpl = templates.find((t) => t.id === selectedTemplateId);
+    if (!tpl) return;
+    if (!purpose.trim() && tpl.default_purpose) {
+      setPurpose(tpl.default_purpose);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTemplateId, templates]);
+
+  const currentFocusPlaceholder =
+    templates.find((t) => t.id === selectedTemplateId)?.focus_placeholder ||
+    DEFAULT_FOCUS_PLACEHOLDER;
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -22,6 +48,7 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
       purpose: purpose.trim() || undefined,
       participants: participants.trim() || undefined,
       focus_points: focusPoints.trim() || undefined,
+      template_id: selectedTemplateId !== 'default' ? selectedTemplateId : undefined,
     });
   };
 
@@ -29,6 +56,28 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-4">
+      <div>
+        <label className="block text-sm font-medium mb-1">
+          会议类型(可选)
+        </label>
+        <select
+          value={selectedTemplateId}
+          onChange={(e) => setSelectedTemplateId(e.target.value)}
+          disabled={disabled}
+          className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
+        >
+          {templates.length === 0 && <option value="default">默认(技术会议通用)</option>}
+          {templates.map((t) => (
+            <option key={t.id} value={t.id}>
+              {t.display_name}
+            </option>
+          ))}
+        </select>
+        <div className="text-xs text-gray-500 mt-1">
+          模板会预填"会议目的",并切换纪要结构。选"默认"= 技术会议通用风格。
+        </div>
+      </div>
+
       <div>
         <label className="block text-sm font-medium mb-1">
           会议名 <span className="text-red-500">*</span>
@@ -62,20 +111,14 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
         <label className="block text-sm font-medium mb-1 text-gray-700">
           会议目的(可选)
         </label>
-        <select
+        <input
+          type="text"
           value={purpose}
           onChange={(e) => setPurpose(e.target.value)}
           disabled={disabled}
           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100"
-        >
-          <option value="">未指定</option>
-          <option value="报价谈判">报价谈判</option>
-          <option value="设计评审">设计评审</option>
-          <option value="立项沟通">立项沟通</option>
-          <option value="投标方案">投标方案</option>
-          <option value="项目对接">项目对接</option>
-          <option value="其他">其他</option>
-        </select>
+          placeholder="模板会自动预填,你也可以自由填写"
+        />
       </div>
 
       <div>
@@ -102,7 +145,7 @@ export function MeetingForm({ onSubmit, disabled }: Props) {
           disabled={disabled}
           rows={2}
           className="w-full px-3 py-2 border border-gray-300 rounded focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 text-sm"
-          placeholder={"开会前在这里写本次特别关注的技术点,AI 会围绕这些给提示。\n例:防火分区合规性 / 节点构造的耐久性 / 跟结构院的接口边界 / 核对图纸 vs 模型一致性"}
+          placeholder={currentFocusPlaceholder}
         />
       </div>
 

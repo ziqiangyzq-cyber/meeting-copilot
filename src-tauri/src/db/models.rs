@@ -13,6 +13,7 @@ pub struct Meeting {
     pub metadata: Option<String>,
     pub focus_points: Option<String>,
     pub notes: Option<String>,
+    pub template_id: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
