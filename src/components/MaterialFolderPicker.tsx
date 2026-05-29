@@ -109,7 +109,7 @@ export function MaterialFolderPicker({ meetingId, onAllReady }: Props) {
           {folder ? `📁 ${folder.split('/').pop() || folder}` : '📁 选择会议资料文件夹'}
         </div>
         <div className="text-xs text-gray-400 mt-1">
-          支持 PDF / Word / Markdown / 文本 — 选好后自动索引文件夹内所有支持文件
+          支持 PDF / Word / Markdown / 文本 — 选好后自动索引文件夹及其子文件夹内所有支持文件
         </div>
       </button>
 

@@ -379,26 +379,51 @@ pub async fn list_supported_files(folder: String) -> std::result::Result<Vec<Str
         return Err(format!("not a directory: {folder}"));
     }
     let mut files = Vec::new();
-    let entries = std::fs::read_dir(path).map_err(|e| format!("read_dir: {e}"))?;
-    for entry in entries {
-        let entry = entry.map_err(|e| format!("entry: {e}"))?;
-        let p = entry.path();
-        if !p.is_file() {
-            continue;
-        }
-        let ext = p
-            .extension()
-            .and_then(|s| s.to_str())
-            .map(|s| s.to_lowercase())
-            .unwrap_or_default();
-        if matches!(ext.as_str(), "pdf" | "docx" | "md" | "txt") {
-            if let Some(s) = p.to_str() {
-                files.push(s.to_string());
-            }
-        }
-    }
+    collect_supported_files(path, &mut files, 0).map_err(|e| format!("scan: {e}"))?;
     files.sort();
     Ok(files)
+}
+
+/// Recursively collect supported material files under `dir`, descending into
+/// subfolders. Skips hidden entries (.DS_Store, .git, …) and caps recursion depth
+/// to avoid pathological trees. Uses `file_type()` from the dir entry (which does
+/// NOT follow symlinks), so symlinked directories are ignored — no cycle risk.
+fn collect_supported_files(
+    dir: &std::path::Path,
+    out: &mut Vec<String>,
+    depth: usize,
+) -> std::io::Result<()> {
+    const MAX_DEPTH: usize = 16;
+    if depth > MAX_DEPTH {
+        return Ok(());
+    }
+    for entry in std::fs::read_dir(dir)? {
+        let entry = entry?;
+        let p = entry.path();
+        // Skip hidden files/folders.
+        if let Some(name) = p.file_name().and_then(|s| s.to_str()) {
+            if name.starts_with('.') {
+                continue;
+            }
+        }
+        let file_type = entry.file_type()?;
+        if file_type.is_dir() {
+            collect_supported_files(&p, out, depth + 1)?;
+        } else if file_type.is_file() {
+            let ext = p
+                .extension()
+                .and_then(|s| s.to_str())
+                .map(|s| s.to_lowercase())
+                .unwrap_or_default();
+            if matches!(ext.as_str(), "pdf" | "docx" | "md" | "txt") {
+                if let Some(s) = p.to_str() {
+                    out.push(s.to_string());
+                }
+            }
+        }
+        // symlinks fall through (neither branch) and are intentionally ignored.
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -945,5 +970,51 @@ pub async fn test_minimax_key(key: String) -> std::result::Result<(), String> {
             .and_then(|m| m.as_str())
             .unwrap_or("(no msg)");
         Err(format!("MiniMax 错误 [{base_status}]: {msg}"))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::collect_supported_files;
+    use std::fs;
+
+    #[test]
+    fn collects_files_recursively_skipping_hidden_and_unsupported() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+
+        // top level
+        fs::write(root.join("a.pdf"), b"x").unwrap();
+        fs::write(root.join("note.txt"), b"x").unwrap();
+        fs::write(root.join("skip.xyz"), b"x").unwrap(); // unsupported ext
+        fs::write(root.join(".DS_Store"), b"x").unwrap(); // hidden file
+
+        // nested subfolder
+        let sub = root.join("sub/deep");
+        fs::create_dir_all(&sub).unwrap();
+        fs::write(sub.join("b.docx"), b"x").unwrap();
+        fs::write(sub.join("c.md"), b"x").unwrap();
+
+        // hidden subfolder should be skipped entirely
+        let hidden = root.join(".git");
+        fs::create_dir_all(&hidden).unwrap();
+        fs::write(hidden.join("d.md"), b"x").unwrap();
+
+        let mut out = Vec::new();
+        collect_supported_files(root, &mut out, 0).unwrap();
+        out.sort();
+
+        let names: Vec<String> = out
+            .iter()
+            .map(|p| std::path::Path::new(p).file_name().unwrap().to_string_lossy().into_owned())
+            .collect();
+
+        assert_eq!(out.len(), 4, "expected 4 supported files, got {names:?}");
+        assert!(names.contains(&"a.pdf".to_string()));
+        assert!(names.contains(&"note.txt".to_string()));
+        assert!(names.contains(&"b.docx".to_string()), "subfolder file missing");
+        assert!(names.contains(&"c.md".to_string()), "deep subfolder file missing");
+        assert!(!names.contains(&"skip.xyz".to_string()), "unsupported ext leaked");
+        assert!(!names.contains(&"d.md".to_string()), "hidden-folder file leaked");
     }
 }

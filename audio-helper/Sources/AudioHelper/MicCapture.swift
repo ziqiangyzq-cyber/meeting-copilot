@@ -43,13 +43,24 @@ class MicCapture {
 
         // 2. Enable voice processing (echo cancel + noise suppress + AGC) on inputNode
         //    BEFORE installing the tap. Must touch inputNode AFTER setting device.
-        if voiceProcessingEnabled {
+        //
+        //    Gate: only engage VPIO when meeting audio plays through the BUILT-IN
+        //    speakers (外放). With headphones — especially Bluetooth — there is no
+        //    acoustic echo to cancel, and turning VPIO on forces Bluetooth output from
+        //    high-quality A2DP down to call-mode HFP/SCO: playback volume craters and
+        //    mic capture frequently breaks. So off-speaker we skip VPIO regardless of
+        //    the user toggle. The manual toggle can only turn it OFF, never force it on
+        //    where it would break the mic.
+        let useVoiceProcessing = voiceProcessingEnabled && outputIsBuiltInSpeaker()
+        if useVoiceProcessing {
             do {
                 try engine.inputNode.setVoiceProcessingEnabled(true)
                 logInfo("mic voice processing enabled (echo cancel + noise suppress + AGC)")
             } catch {
                 logError("setVoiceProcessingEnabled failed: \(error) — continuing without voice processing")
             }
+        } else if voiceProcessingEnabled {
+            logInfo("mic voice processing requested but SKIPPED — output is not built-in speakers (headphones/Bluetooth detected; no echo to cancel, and VPIO would break Bluetooth mic)")
         } else {
             logInfo("mic voice processing DISABLED by user setting")
         }
@@ -68,26 +79,41 @@ class MicCapture {
 
     private func installCoreAudioListener() {
         guard !coreAudioListenerInstalled else { return }
-        var address = AudioObjectPropertyAddress(
+        // Use OUR serial queue, not main — main thread is permanently blocked
+        // on a semaphore in main.swift, so DispatchQueue.main blocks never fire.
+
+        // Watch default INPUT device (mic hot-swap) ...
+        var inputAddr = AudioObjectPropertyAddress(
             mSelector: kAudioHardwarePropertyDefaultInputDevice,
             mScope: kAudioObjectPropertyScopeGlobal,
             mElement: kAudioObjectPropertyElementMain
         )
-        // Use OUR serial queue, not main — main thread is permanently blocked
-        // on a semaphore in main.swift, so DispatchQueue.main blocks never fire.
-        let status = AudioObjectAddPropertyListenerBlock(
-            AudioObjectID(kAudioObjectSystemObject),
-            &address,
-            micQueue
+        let inStatus = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &inputAddr, micQueue
         ) { [weak self] _, _ in
             logInfo("core audio: default input device changed")
             self?.scheduleRestart()
         }
-        if status == noErr {
+
+        // ... and default OUTPUT device, because plugging in / removing headphones
+        // changes whether VPIO should run (see outputIsBuiltInSpeaker()).
+        var outputAddr = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        let outStatus = AudioObjectAddPropertyListenerBlock(
+            AudioObjectID(kAudioObjectSystemObject), &outputAddr, micQueue
+        ) { [weak self] _, _ in
+            logInfo("core audio: default output device changed (re-evaluating voice processing)")
+            self?.scheduleRestart()
+        }
+
+        if inStatus == noErr || outStatus == noErr {
             coreAudioListenerInstalled = true
-            logInfo("installed core audio default-input listener (on micQueue)")
+            logInfo("installed core audio default input/output listeners (on micQueue) in=\(inStatus) out=\(outStatus)")
         } else {
-            logError("failed to install core audio listener: OSStatus=\(status)")
+            logError("failed to install core audio listeners: in=\(inStatus) out=\(outStatus)")
         }
     }
 
@@ -163,6 +189,58 @@ class MicCapture {
             return deviceID
         }
         return nil
+    }
+
+    private func currentDefaultOutputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDefaultOutputDevice,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var deviceID: AudioDeviceID = kAudioObjectUnknown
+        var size: UInt32 = UInt32(MemoryLayout<AudioDeviceID>.size)
+        let status = AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject),
+            &address, 0, nil, &size, &deviceID
+        )
+        if status == noErr && deviceID != kAudioObjectUnknown {
+            return deviceID
+        }
+        return nil
+    }
+
+    private func transportType(for deviceID: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyTransportType,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var transport: UInt32 = 0
+        var size: UInt32 = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &transport)
+        return status == noErr ? transport : nil
+    }
+
+    /// VPIO should only run when meeting audio comes out of the built-in speakers (外放),
+    /// where the other party's voice can leak into the mic and needs echo cancellation.
+    /// For Bluetooth / USB / any non-built-in output (i.e. headphones), there's no echo
+    /// to cancel and VPIO does more harm than good — so we return false to skip it.
+    /// When the output device or its transport can't be resolved we default to false
+    /// (skip), since the worst failure (breaking the Bluetooth mic) is worse than the
+    /// rare case of losing echo cancellation on speakers.
+    private func outputIsBuiltInSpeaker() -> Bool {
+        guard let outID = currentDefaultOutputDeviceID() else {
+            logInfo("could not resolve default output device; skipping voice processing to be safe")
+            return false
+        }
+        guard let transport = transportType(for: outID) else {
+            logInfo("could not read output transport type; skipping voice processing to be safe")
+            return false
+        }
+        let isBuiltIn = (transport == kAudioDeviceTransportTypeBuiltIn)
+        let name = deviceName(for: outID) ?? "unknown"
+        logInfo("default output: \(name) transport=\(transport) builtInSpeaker=\(isBuiltIn)")
+        return isBuiltIn
     }
 
     private func deviceName(for deviceID: AudioDeviceID) -> String? {
