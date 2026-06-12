@@ -14,7 +14,6 @@ import {
   translateText,
   updateFocusPoints,
   updateMeetingNotes,
-  restartMic,
   setMicEnabled,
   getVoiceProcessing,
   setVoiceProcessing,
@@ -367,15 +366,6 @@ export function MeetingView({ meetingId, initialFocusPoints, onEnd }: Props) {
           }
         >
           {micOn ? '🎤 麦克风 开' : '🔇 麦克风 关'}
-        </button>
-        <button
-          onClick={async () => {
-            try { await restartMic(); } catch (e) { console.error(e); }
-          }}
-          className="px-3 py-1.5 bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm rounded"
-          title="切换麦克风设备后如果没自动生效,点这个手动重连"
-        >
-          🎙️ 重连麦
         </button>
         <button
           onClick={handleToggleVp}

@@ -138,10 +138,6 @@ export async function setSuggestionsEnabled(enabled: boolean): Promise<void> {
   await invoke('set_suggestions_enabled', { enabled });
 }
 
-export async function restartMic(): Promise<void> {
-  await invoke('restart_mic');
-}
-
 export async function setMicEnabled(enabled: boolean): Promise<void> {
   await invoke('set_mic_enabled', { enabled });
 }

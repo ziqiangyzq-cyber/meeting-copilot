@@ -492,19 +492,6 @@ impl Orchestrator {
         Ok(())
     }
 
-    /// Manually trigger a mic restart in AudioHelper (fallback for when
-    /// AVAudioEngineConfigurationChange doesn't fire on device hot-swap).
-    pub async fn restart_mic(&self) -> Result<()> {
-        let mut state = self.inner.lock().await;
-        if let Some(helper) = state.helper.as_mut() {
-            helper.send_cmd("restart_mic").await?;
-            tracing::info!("sent restart_mic to AudioHelper");
-            Ok(())
-        } else {
-            Err(AppError::AudioHelper("no active meeting".into()))
-        }
-    }
-
     /// Live mic on/off toggle. System audio keeps flowing regardless. The flag is
     /// flipped first so the frame forwarder reacts even if the helper command lags.
     pub async fn set_mic_enabled(&self, enabled: bool) -> Result<()> {

@@ -258,13 +258,6 @@ pub async fn stop_meeting(
 }
 
 #[tauri::command]
-pub async fn restart_mic(
-    state: tauri::State<'_, AppState>,
-) -> std::result::Result<(), String> {
-    state.orchestrator.restart_mic().await.map_err(|e| e.to_string())
-}
-
-#[tauri::command]
 pub async fn set_mic_enabled(
     enabled: bool,
     state: tauri::State<'_, AppState>,
