@@ -23,6 +23,41 @@ export async function onTranscript(
   return listen<TranscriptEvent>('transcript', (e) => callback(e.payload));
 }
 
+// Fired when the audio capture pipeline stalls (no frames for a while) — the
+// meeting should be stopped and restarted. (A3)
+export async function onAudioStalled(cb: () => void): Promise<UnlistenFn> {
+  return listen<void>('audio_stalled', () => cb());
+}
+
+export interface AudioRecoveringEvent {
+  source: 'system' | 'mic';
+  attempt: number;
+}
+
+/// A capture source went silent; backend is restarting it automatically.
+export async function onAudioRecovering(
+  cb: (e: AudioRecoveringEvent) => void,
+): Promise<UnlistenFn> {
+  return listen<AudioRecoveringEvent>('audio_recovering', (e) => cb(e.payload));
+}
+
+export async function onAudioRecovered(
+  cb: (e: { source: 'system' | 'mic' }) => void,
+): Promise<UnlistenFn> {
+  return listen<{ source: 'system' | 'mic' }>('audio_recovered', (e) => cb(e.payload));
+}
+
+export interface AsrStatusEvent {
+  source: 'system' | 'mic';
+  state: 'reconnecting' | 'reconnected' | 'failed';
+  attempt?: number;
+}
+
+/// ASR WebSocket connection health (reconnecting / reconnected / failed).
+export async function onAsrStatus(cb: (e: AsrStatusEvent) => void): Promise<UnlistenFn> {
+  return listen<AsrStatusEvent>('asr_status', (e) => cb(e.payload));
+}
+
 // --- Plan 2 additions ---
 
 export interface MeetingDraft {
@@ -107,6 +142,18 @@ export async function restartMic(): Promise<void> {
   await invoke('restart_mic');
 }
 
+export async function setMicEnabled(enabled: boolean): Promise<void> {
+  await invoke('set_mic_enabled', { enabled });
+}
+
+export async function setLockBuiltinMic(enabled: boolean): Promise<void> {
+  await invoke('set_lock_builtin_mic', { enabled });
+}
+
+export async function getLockBuiltinMic(): Promise<boolean> {
+  return await invoke<boolean>('get_lock_builtin_mic');
+}
+
 export async function translateText(text: string): Promise<string> {
   return await invoke<string>('translate_text', { text });
 }
@@ -131,6 +178,13 @@ export async function listSupportedFiles(folder: string): Promise<string[]> {
 
 export async function generateMinutes(meetingId: string): Promise<string> {
   return await invoke<string>('generate_minutes', { meetingId });
+}
+
+// Generate one merged minutes from several meeting records (e.g. a meeting that
+// was interrupted and restarted into separate records). Streams via the same
+// minutes_token / minutes_complete / minutes_error events. (T2-merge)
+export async function generateMinutesMerged(meetingIds: string[]): Promise<string> {
+  return await invoke<string>('generate_minutes_merged', { meetingIds });
 }
 
 export async function onMinutesToken(cb: (token: string) => void): Promise<UnlistenFn> {

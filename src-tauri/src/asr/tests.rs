@@ -11,7 +11,8 @@ mod integration_tests {
         let key = std::env::var("ALIYUN_API_KEY").expect("ALIYUN_API_KEY not set");
 
         let (tx, mut rx) = mpsc::channel::<TranscriptEvent>(64);
-        let mut client = AliyunParaformer::connect(key, None, tx)
+        let (status_tx, _status_rx) = mpsc::channel(8);
+        let mut client = AliyunParaformer::connect(key, None, tx, status_tx)
             .await
             .expect("connect failed");
 

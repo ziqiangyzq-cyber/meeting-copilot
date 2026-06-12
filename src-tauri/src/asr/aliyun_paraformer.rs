@@ -12,6 +12,13 @@ use uuid::Uuid;
 const WS_URL: &str = "wss://dashscope.aliyuncs.com/api-ws/v1/inference/";
 const MODEL: &str = "paraformer-realtime-v2";
 
+/// Reconnect for up to ~5 minutes of continuous outage (backoff caps at 10s).
+/// The attempt counter resets whenever a session reaches task-started, so a
+/// long meeting can survive any number of separate network blips.
+const MAX_RECONNECT_ATTEMPTS: u32 = 30;
+/// After sending finish-task, how long to wait for the server's final results.
+const FINISH_DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 #[derive(Debug, Clone)]
 pub struct TranscriptEvent {
     pub source: AudioSource,
@@ -19,6 +26,15 @@ pub struct TranscriptEvent {
     pub is_final: bool,
     pub begin_ms: u64,
     pub end_ms: u64,
+}
+
+/// Connection-health events surfaced to the UI so a mid-meeting WS drop is
+/// never silent.
+#[derive(Debug, Clone)]
+pub enum AsrStatus {
+    Reconnecting { source: AudioSource, attempt: u32 },
+    Reconnected { source: AudioSource },
+    Failed { source: AudioSource },
 }
 
 #[derive(Debug, Serialize)]
@@ -88,26 +104,34 @@ impl AliyunParaformer {
         api_key: String,
         vocabulary_id: Option<String>,
         transcript_tx: mpsc::Sender<TranscriptEvent>,
+        status_tx: mpsc::Sender<AsrStatus>,
     ) -> Result<Self> {
         let (system_tx, system_rx) = mpsc::channel::<Vec<u8>>(256);
         let (mic_tx, mic_rx) = mpsc::channel::<Vec<u8>>(256);
 
-        spawn_stream(
+        // First connection happens inline so a bad key / no network fails the
+        // meeting start immediately; reconnects are handled by the supervisor.
+        let system_ws = open_stream(&api_key).await?;
+        let mic_ws = open_stream(&api_key).await?;
+
+        tokio::spawn(supervise_stream(
             api_key.clone(),
             vocabulary_id.clone(),
             AudioSource::System,
+            system_ws,
             system_rx,
             transcript_tx.clone(),
-        )
-        .await?;
-        spawn_stream(
+            status_tx.clone(),
+        ));
+        tokio::spawn(supervise_stream(
             api_key,
             vocabulary_id,
             AudioSource::Mic,
+            mic_ws,
             mic_rx,
             transcript_tx,
-        )
-        .await?;
+            status_tx,
+        ));
 
         Ok(Self {
             system_tx: Some(system_tx),
@@ -138,16 +162,12 @@ impl ASRClient for AliyunParaformer {
     }
 }
 
-async fn spawn_stream(
-    api_key: String,
-    vocabulary_id: Option<String>,
-    source: AudioSource,
-    mut pcm_rx: mpsc::Receiver<Vec<u8>>,
-    transcript_tx: mpsc::Sender<TranscriptEvent>,
-) -> Result<()> {
-    let task_id = Uuid::new_v4().simple().to_string();
+type WsStream = tokio_tungstenite::WebSocketStream<
+    tokio_tungstenite::MaybeTlsStream<tokio::net::TcpStream>,
+>;
 
-    // Build the WebSocket connect request with auth header
+/// Open a raw WebSocket connection to DashScope (no task started yet).
+async fn open_stream(api_key: &str) -> Result<WsStream> {
     let mut req = WS_URL
         .into_client_request()
         .map_err(|e| AppError::Asr(format!("invalid url: {e}")))?;
@@ -159,11 +179,104 @@ async fn spawn_stream(
     );
     req.headers_mut()
         .insert("X-DashScope-DataInspection", "enable".parse().unwrap());
-
     let (ws_stream, _resp) = connect_async(req).await?;
-    let (mut write, mut read) = ws_stream.split();
+    Ok(ws_stream)
+}
 
-    // Send run-task as first message
+enum StreamEnd {
+    /// Input channel closed and the session drained cleanly — meeting over.
+    Finished,
+    /// Connection/task died while audio was still flowing — reconnect.
+    Disconnected { reason: String, saw_started: bool },
+}
+
+/// Owns one source's PCM receiver for the whole meeting; reconnects the
+/// underlying WS session whenever it dies while audio is still flowing.
+/// PCM keeps buffering in the channel during the gap, so short outages lose
+/// little or no speech.
+async fn supervise_stream(
+    api_key: String,
+    vocabulary_id: Option<String>,
+    source: AudioSource,
+    initial_ws: WsStream,
+    mut pcm_rx: mpsc::Receiver<Vec<u8>>,
+    transcript_tx: mpsc::Sender<TranscriptEvent>,
+    status_tx: mpsc::Sender<AsrStatus>,
+) {
+    let mut ws = Some(initial_ws);
+    let mut attempt: u32 = 0;
+    loop {
+        let stream = match ws.take() {
+            Some(s) => s,
+            None => {
+                attempt += 1;
+                if attempt > MAX_RECONNECT_ATTEMPTS {
+                    tracing::error!(
+                        "ASR {:?}: giving up after {} reconnect attempts",
+                        source,
+                        MAX_RECONNECT_ATTEMPTS
+                    );
+                    let _ = status_tx.send(AsrStatus::Failed { source }).await;
+                    return;
+                }
+                let delay =
+                    std::time::Duration::from_secs(2u64.pow((attempt - 1).min(4)).min(10));
+                tracing::warn!(
+                    "ASR {:?}: reconnecting (attempt {}) in {:?}",
+                    source,
+                    attempt,
+                    delay
+                );
+                let _ = status_tx
+                    .send(AsrStatus::Reconnecting { source, attempt })
+                    .await;
+                tokio::time::sleep(delay).await;
+                match open_stream(&api_key).await {
+                    Ok(s) => {
+                        let _ = status_tx.send(AsrStatus::Reconnected { source }).await;
+                        s
+                    }
+                    Err(e) => {
+                        tracing::warn!("ASR {:?}: reconnect failed: {e}", source);
+                        continue;
+                    }
+                }
+            }
+        };
+
+        match run_stream_once(stream, &vocabulary_id, source, &mut pcm_rx, &transcript_tx).await
+        {
+            StreamEnd::Finished => {
+                tracing::info!("ASR {:?}: session finished cleanly", source);
+                return;
+            }
+            StreamEnd::Disconnected {
+                reason,
+                saw_started,
+            } => {
+                tracing::warn!("ASR {:?}: session dropped ({reason}); will reconnect", source);
+                if saw_started {
+                    // Session was healthy before dying — fresh backoff for the
+                    // next outage instead of compounding old failures.
+                    attempt = 0;
+                }
+            }
+        }
+    }
+}
+
+/// Run one ASR task over an already-open WS connection until the input closes
+/// (clean finish) or the connection/task dies (caller reconnects).
+async fn run_stream_once(
+    ws: WsStream,
+    vocabulary_id: &Option<String>,
+    source: AudioSource,
+    pcm_rx: &mut mpsc::Receiver<Vec<u8>>,
+    transcript_tx: &mpsc::Sender<TranscriptEvent>,
+) -> StreamEnd {
+    let (mut write, mut read) = ws.split();
+    let task_id = Uuid::new_v4().simple().to_string();
+
     let run_task = RunTaskMsg {
         header: ClientHeader {
             action: "run-task".into(),
@@ -178,97 +291,158 @@ async fn spawn_stream(
             parameters: TaskParameters {
                 format: "pcm".into(),
                 sample_rate: 16000,
-                vocabulary_id,
+                vocabulary_id: vocabulary_id.clone(),
                 disfluency_removal_enabled: false,
                 language_hints: vec!["zh".into(), "en".into()],
             },
             input: serde_json::json!({}),
         },
     };
-    let run_json = serde_json::to_string(&run_task)?;
-    write.send(Message::Text(run_json)).await?;
-
-    let task_id_clone = task_id.clone();
-
-    // Audio send loop
-    tokio::spawn(async move {
-        while let Some(pcm) = pcm_rx.recv().await {
-            if write.send(Message::Binary(pcm)).await.is_err() {
-                break;
+    let run_json = match serde_json::to_string(&run_task) {
+        Ok(j) => j,
+        Err(e) => {
+            return StreamEnd::Disconnected {
+                reason: format!("serialize run-task: {e}"),
+                saw_started: false,
             }
         }
-        // Send finish-task on receiver close
-        let finish = FinishTaskMsg {
-            header: ClientHeader {
-                action: "finish-task".into(),
-                task_id: task_id_clone,
-                streaming: "duplex".into(),
-            },
-            payload: serde_json::json!({"input": {}}),
+    };
+    if let Err(e) = write.send(Message::Text(run_json)).await {
+        return StreamEnd::Disconnected {
+            reason: format!("send run-task: {e}"),
+            saw_started: false,
         };
-        if let Ok(json) = serde_json::to_string(&finish) {
-            let _ = write.send(Message::Text(json)).await;
-        }
-        // Don't close the socket immediately — let the server send task-finished first
-    });
+    }
 
-    // Transcript receive loop
-    tokio::spawn(async move {
-        while let Some(msg) = read.next().await {
-            match msg {
-                Ok(Message::Text(text)) => {
-                    let server: ServerMsg = match serde_json::from_str(&text) {
-                        Ok(m) => m,
-                        Err(e) => {
-                            tracing::warn!("parse server msg failed: {e}, raw: {text}");
-                            continue;
-                        }
+    let mut saw_started = false;
+    loop {
+        tokio::select! {
+            pcm = pcm_rx.recv() => match pcm {
+                Some(data) => {
+                    if let Err(e) = write.send(Message::Binary(data)).await {
+                        return StreamEnd::Disconnected {
+                            reason: format!("send pcm: {e}"),
+                            saw_started,
+                        };
+                    }
+                }
+                None => {
+                    // Meeting over: flush finish-task, drain final results.
+                    let finish = FinishTaskMsg {
+                        header: ClientHeader {
+                            action: "finish-task".into(),
+                            task_id: task_id.clone(),
+                            streaming: "duplex".into(),
+                        },
+                        payload: serde_json::json!({"input": {}}),
                     };
-                    match server.header.event.as_str() {
-                        "task-started" => {
-                            tracing::info!("ASR task-started (source={:?})", source);
-                        }
-                        "result-generated" => {
-                            if let Some(payload) = server.payload {
-                                if let Some(output) = payload.get("output") {
-                                    parse_and_emit_transcript(output, source, &transcript_tx).await;
+                    if let Ok(json) = serde_json::to_string(&finish) {
+                        let _ = write.send(Message::Text(json)).await;
+                    }
+                    loop {
+                        match tokio::time::timeout(FINISH_DRAIN_TIMEOUT, read.next()).await {
+                            Ok(Some(Ok(Message::Text(text)))) => {
+                                match handle_server_text(&text, source, transcript_tx).await {
+                                    ServerOutcome::Continue | ServerOutcome::Started => {}
+                                    ServerOutcome::Finished | ServerOutcome::Failed(_) => break,
                                 }
                             }
+                            Ok(Some(Ok(_))) => {}
+                            _ => break, // Close / error / EOF / timeout — done either way
                         }
-                        "task-failed" => {
-                            tracing::error!(
-                                "ASR task failed: code={:?}, msg={:?}",
-                                server.header.error_code,
-                                server.header.error_message
-                            );
-                            eprintln!(
-                                "ASR task-failed raw: {text}"
-                            );
-                            break;
+                    }
+                    return StreamEnd::Finished;
+                }
+            },
+            msg = read.next() => match msg {
+                Some(Ok(Message::Text(text))) => {
+                    match handle_server_text(&text, source, transcript_tx).await {
+                        ServerOutcome::Continue => {}
+                        ServerOutcome::Started => saw_started = true,
+                        ServerOutcome::Failed(reason) => {
+                            return StreamEnd::Disconnected { reason, saw_started }
                         }
-                        "task-finished" => {
-                            tracing::info!("ASR task-finished (source={:?})", source);
-                            break;
-                        }
-                        other => {
-                            tracing::debug!("unhandled ASR event: {}", other);
+                        ServerOutcome::Finished => {
+                            return StreamEnd::Disconnected {
+                                reason: "server finished task early".into(),
+                                saw_started,
+                            }
                         }
                     }
                 }
-                Ok(Message::Close(_)) => {
-                    tracing::info!("ASR ws closed (source={:?})", source);
-                    break;
+                Some(Ok(Message::Close(_))) => {
+                    return StreamEnd::Disconnected {
+                        reason: "server closed connection".into(),
+                        saw_started,
+                    }
                 }
-                Ok(_) => {}
-                Err(e) => {
-                    tracing::error!("ASR ws read error: {e}");
-                    break;
+                Some(Ok(_)) => {}
+                Some(Err(e)) => {
+                    return StreamEnd::Disconnected {
+                        reason: format!("ws read: {e}"),
+                        saw_started,
+                    }
+                }
+                None => {
+                    return StreamEnd::Disconnected {
+                        reason: "ws stream ended".into(),
+                        saw_started,
+                    }
+                }
+            },
+        }
+    }
+}
+
+enum ServerOutcome {
+    Continue,
+    Started,
+    Finished,
+    Failed(String),
+}
+
+async fn handle_server_text(
+    text: &str,
+    source: AudioSource,
+    transcript_tx: &mpsc::Sender<TranscriptEvent>,
+) -> ServerOutcome {
+    let server: ServerMsg = match serde_json::from_str(text) {
+        Ok(m) => m,
+        Err(e) => {
+            tracing::warn!("parse server msg failed: {e}, raw: {text}");
+            return ServerOutcome::Continue;
+        }
+    };
+    match server.header.event.as_str() {
+        "task-started" => {
+            tracing::info!("ASR task-started (source={:?})", source);
+            ServerOutcome::Started
+        }
+        "result-generated" => {
+            if let Some(payload) = server.payload {
+                if let Some(output) = payload.get("output") {
+                    parse_and_emit_transcript(output, source, transcript_tx).await;
                 }
             }
+            ServerOutcome::Continue
         }
-    });
-
-    Ok(())
+        "task-failed" => {
+            let reason = format!(
+                "task-failed: code={:?} msg={:?}",
+                server.header.error_code, server.header.error_message
+            );
+            tracing::error!("ASR {reason} (source={:?})", source);
+            ServerOutcome::Failed(reason)
+        }
+        "task-finished" => {
+            tracing::info!("ASR task-finished (source={:?})", source);
+            ServerOutcome::Finished
+        }
+        other => {
+            tracing::debug!("unhandled ASR event: {}", other);
+            ServerOutcome::Continue
+        }
+    }
 }
 
 async fn parse_and_emit_transcript(

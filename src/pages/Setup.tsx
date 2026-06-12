@@ -11,7 +11,7 @@ import { MinutesView } from './MinutesView';
 import { HistoryList } from './HistoryList';
 import { HistoryDetail } from './HistoryDetail';
 
-type Stage = 'form' | 'materials' | 'starting' | 'started' | 'minutes' | 'history-list' | 'history-detail';
+type Stage = 'form' | 'materials' | 'starting' | 'started' | 'minutes' | 'history-list' | 'history-detail' | 'merge-minutes';
 
 export function Setup({ onOpenSettings }: { onOpenSettings?: () => void } = {}) {
   const [stage, setStage] = useState<Stage>('form');
@@ -21,6 +21,7 @@ export function Setup({ onOpenSettings }: { onOpenSettings?: () => void } = {}) 
   const [error, setError] = useState<string | null>(null);
   const [materialsReady, setMaterialsReady] = useState(false);
   const [historyMeetingId, setHistoryMeetingId] = useState<string | null>(null);
+  const [mergeIds, setMergeIds] = useState<string[] | null>(null);
 
   const handleCreate = async (draft: MeetingDraft) => {
     setError(null);
@@ -59,7 +60,25 @@ export function Setup({ onOpenSettings }: { onOpenSettings?: () => void } = {}) 
           setHistoryMeetingId(id);
           setStage('history-detail');
         }}
+        onMerge={(ids) => {
+          setMergeIds(ids);
+          setStage('merge-minutes');
+        }}
         onBack={() => setStage('form')}
+      />
+    );
+  }
+
+  if (stage === 'merge-minutes' && mergeIds && mergeIds.length > 0) {
+    return (
+      <MinutesView
+        meetingId={mergeIds[0]}
+        meetingName={`合并纪要(${mergeIds.length} 段)`}
+        mergeIds={mergeIds}
+        onBack={() => {
+          setStage('history-list');
+          setMergeIds(null);
+        }}
       />
     );
   }

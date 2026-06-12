@@ -13,10 +13,13 @@ mod suggestion;
 mod templates;
 
 use commands::{
-    create_meeting, delete_meeting, export_minutes_docx, generate_minutes, get_api_key_status,
-    get_llm_status, get_meeting_detail, get_voice_processing, ingest_material, list_meetings,
+    create_meeting, delete_meeting, export_minutes_docx, generate_minutes,
+    generate_minutes_merged, get_api_key_status,
+    get_llm_status, get_lock_builtin_mic, get_meeting_detail, get_voice_processing,
+    ingest_material, list_meetings,
     list_supported_files, list_templates, restart_mic, save_aliyun_only, save_api_keys,
-    save_minimax_only, save_openai_compat, set_suggestions_enabled, set_voice_processing,
+    save_minimax_only, save_openai_compat, set_lock_builtin_mic, set_mic_enabled,
+    set_suggestions_enabled, set_voice_processing,
     start_meeting, stop_meeting, test_aliyun_key, test_minimax_key, test_openai_compat,
     translate_text, trigger_suggestion, update_focus_points, update_meeting_notes, AppState,
 };
@@ -41,6 +44,25 @@ pub fn run() {
         )
         .init();
 
+    // Portable / green build: if a WebView2 runtime is shipped next to the exe
+    // (folder `WebView2Runtime/` with msedgewebview2.exe), point WRY at it so the
+    // app launches on any Windows even when WebView2 is not installed. Falls back
+    // to the system (Evergreen) runtime when the bundled folder is absent (e.g. dev).
+    #[cfg(target_os = "windows")]
+    {
+        if std::env::var_os("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER").is_none() {
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    let rt = dir.join("WebView2Runtime");
+                    if rt.join("msedgewebview2.exe").exists() {
+                        std::env::set_var("WEBVIEW2_BROWSER_EXECUTABLE_FOLDER", &rt);
+                        tracing::info!("using bundled WebView2 runtime: {}", rt.display());
+                    }
+                }
+            }
+        }
+    }
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_dialog::init())
@@ -54,6 +76,7 @@ pub fn run() {
                 llm_model: String::new(),
                 llm_api_key: String::new(),
                 voice_processing_enabled: true,
+                lock_builtin_mic: false,
             });
 
             tracing::info!(
@@ -90,10 +113,12 @@ pub fn run() {
             stop_meeting,
             trigger_suggestion,
             restart_mic,
+            set_mic_enabled,
             set_suggestions_enabled,
             translate_text,
             list_supported_files,
             generate_minutes,
+            generate_minutes_merged,
             list_meetings,
             get_meeting_detail,
             delete_meeting,
@@ -111,6 +136,8 @@ pub fn run() {
             test_openai_compat,
             set_voice_processing,
             get_voice_processing,
+            set_lock_builtin_mic,
+            get_lock_builtin_mic,
             list_templates
         ])
         .run(tauri::generate_context!())

@@ -265,6 +265,18 @@ pub async fn restart_mic(
 }
 
 #[tauri::command]
+pub async fn set_mic_enabled(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    state
+        .orchestrator
+        .set_mic_enabled(enabled)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+#[tauri::command]
 pub async fn trigger_suggestion(
     state: tauri::State<'_, AppState>,
     app: tauri::AppHandle,
@@ -317,7 +329,9 @@ pub async fn translate_text(
     ];
 
     let (tx, mut rx) = mpsc::channel::<String>(64);
-    let llm_task = tokio::spawn(async move { llm.stream(messages, tx).await });
+    // 2048: the reasoning model's hidden chain-of-thought shares this budget;
+    // 1024 could truncate or blank out translations of longer lines.
+    let llm_task = tokio::spawn(async move { llm.stream_max(messages, tx, 2048).await });
 
     let mut result = String::new();
     while let Some(tok) = rx.recv().await {
@@ -356,6 +370,50 @@ pub async fn generate_minutes(
     });
 
     let result = generator.generate(&meeting_id, tx).await;
+    let _ = recv_task.await;
+
+    match result {
+        Ok(markdown) => {
+            let _ = app.emit("minutes_complete", &markdown);
+            Ok(markdown)
+        }
+        Err(e) => {
+            let msg = e.to_string();
+            let _ = app.emit("minutes_error", &msg);
+            Err(msg)
+        }
+    }
+}
+
+/// Generate one merged minutes from several meeting records (interrupted +
+/// restarted meetings). Streams via the same minutes_* events as the single
+/// variant so the frontend can reuse the streaming UI.
+#[tauri::command]
+pub async fn generate_minutes_merged(
+    meeting_ids: Vec<String>,
+    state: tauri::State<'_, AppState>,
+    app: tauri::AppHandle,
+) -> std::result::Result<String, String> {
+    if !state.orchestrator.has_keys() {
+        return Err("API key 未配置,请先在 ⚙️ 设置里填入".into());
+    }
+    if meeting_ids.is_empty() {
+        return Err("至少选择一段会议记录".into());
+    }
+    let db = state.orchestrator.db();
+    let llm = state.orchestrator.llm();
+    let generator = MinutesGenerator::new(db, llm);
+
+    let (tx, mut rx) = mpsc::channel::<String>(256);
+
+    let app_for_recv = app.clone();
+    let recv_task = tokio::spawn(async move {
+        while let Some(tok) = rx.recv().await {
+            let _ = app_for_recv.emit("minutes_token", tok);
+        }
+    });
+
+    let result = generator.generate_merged(&meeting_ids, tx).await;
     let _ = recv_task.await;
 
     match result {
@@ -912,6 +970,33 @@ pub async fn get_voice_processing() -> std::result::Result<bool, String> {
     use crate::keychain;
     let val = keychain::get("VOICE_PROCESSING_ENABLED").ok().flatten();
     Ok(val.map(|v| v == "true" || v == "1").unwrap_or(true)) // default ON
+}
+
+#[tauri::command]
+pub async fn set_lock_builtin_mic(
+    enabled: bool,
+    state: tauri::State<'_, AppState>,
+) -> std::result::Result<(), String> {
+    // 1. Save preference (so next meeting picks it up)
+    if let Err(e) = crate::config::save_lock_builtin_mic(enabled) {
+        tracing::warn!("save lock_builtin_mic (kc): {e} — proceeding with in-memory only");
+    }
+    // 2. Update in-memory config
+    let mut cfg = state.orchestrator.current_config();
+    cfg.lock_builtin_mic = enabled;
+    state.orchestrator.reconfigure(&cfg);
+    // 3. Apply live if a meeting is running
+    if let Err(e) = state.orchestrator.apply_lock_builtin_mic_live(enabled).await {
+        tracing::warn!("apply_lock_builtin_mic_live failed: {e}");
+    }
+    Ok(())
+}
+
+#[tauri::command]
+pub async fn get_lock_builtin_mic() -> std::result::Result<bool, String> {
+    use crate::keychain;
+    let val = keychain::get("LOCK_BUILTIN_MIC").ok().flatten();
+    Ok(val.map(|v| v == "true" || v == "1").unwrap_or(false)) // default OFF
 }
 
 #[tauri::command]

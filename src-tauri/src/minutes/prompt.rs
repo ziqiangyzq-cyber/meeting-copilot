@@ -1,4 +1,4 @@
-use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
+use crate::db::models::{Meeting, TranscriptRow};
 use crate::templates::MeetingTemplate;
 use std::fmt::Write;
 
@@ -38,7 +38,6 @@ const SYSTEM_PROMPT: &str = r#"你是用户的会议纪要生成助手。用户�
 pub struct MinutesContext<'a> {
     pub meeting: &'a Meeting,
     pub transcripts: &'a [TranscriptRow],
-    pub suggestions: &'a [SuggestionRow],
 }
 
 pub fn system_prompt() -> &'static str {
@@ -112,16 +111,6 @@ pub fn user_prompt(ctx: &MinutesContext, template: &MeetingTemplate) -> String {
     }
 
     let _ = writeln!(out);
-    let _ = writeln!(out, "## AI 在会议中给过的建议(供你参考会议节奏)");
-    if ctx.suggestions.is_empty() {
-        let _ = writeln!(out, "(无)");
-    } else {
-        for s in ctx.suggestions {
-            let _ = writeln!(out, "- [{}] {}", fmt_ms(s.triggered_at), s.content.trim());
-        }
-    }
-
-    let _ = writeln!(out);
     let _ = writeln!(out, "---");
     let _ = writeln!(out, "## 产出格式");
     let _ = writeln!(out);
@@ -164,7 +153,7 @@ fn fmt_duration(ms: i64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
+    use crate::db::models::{Meeting, TranscriptRow};
 
     fn sample_meeting() -> Meeting {
         Meeting {
@@ -210,11 +199,9 @@ mod tests {
     fn user_prompt_includes_all_sections() {
         let m = sample_meeting();
         let ts = sample_transcripts();
-        let ss: Vec<SuggestionRow> = vec![];
         let ctx = MinutesContext {
             meeting: &m,
             transcripts: &ts,
-            suggestions: &ss,
         };
         let s = user_prompt(&ctx, &crate::templates::TEMPLATE_DEFAULT);
         assert!(s.contains("会议名: 项目 A 谈判"));
@@ -230,12 +217,11 @@ mod tests {
         let ctx = MinutesContext {
             meeting: &m,
             transcripts: &[],
-            suggestions: &[],
         };
         let s = user_prompt(&ctx, &crate::templates::TEMPLATE_DEFAULT);
         assert!(s.contains("全场转写"));
         // Should still have empty section marker
-        assert!(s.matches("(无)").count() >= 2);
+        assert!(s.matches("(无)").count() >= 1);
     }
 
     #[test]
@@ -245,7 +231,6 @@ mod tests {
         let ctx = MinutesContext {
             meeting: &m,
             transcripts: &[],
-            suggestions: &[],
         };
         let s = user_prompt(&ctx, &crate::templates::TEMPLATE_DEFAULT);
         assert!(s.contains("本次重点关注: 拿到对方对交付时间的明确承诺"));
@@ -258,7 +243,6 @@ mod tests {
         let ctx = MinutesContext {
             meeting: &m,
             transcripts: &[],
-            suggestions: &[],
         };
         let s = user_prompt(&ctx, &crate::templates::TEMPLATE_DEFAULT);
         assert!(s.contains("用户开会期间的快速笔记"));
@@ -273,7 +257,6 @@ mod tests {
         let ctx = MinutesContext {
             meeting: &m,
             transcripts: &[],
-            suggestions: &[],
         };
         let s = user_prompt(&ctx, &crate::templates::TEMPLATE_DEFAULT);
         assert!(!s.contains("用户开会期间的快速笔记"));

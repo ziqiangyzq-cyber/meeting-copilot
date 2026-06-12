@@ -173,8 +173,10 @@ mod capture {
                     // (KSDATAFORMAT_SUBTYPE_IEEE_FLOAT vs KSDATAFORMAT_SUBTYPE_PCM).
                     // Most shared-mode mix formats on Win10/11 are 32-bit float, so we
                     // assume float when wBitsPerSample == 32.
-                    let is_float = source_format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT as u16
-                        || (source_format.wFormatTag == WAVE_FORMAT_EXTENSIBLE as u16
+                    // WAVE_FORMAT_IEEE_FLOAT = 0x0003, WAVE_FORMAT_EXTENSIBLE = 0xFFFE
+                    // (固定值;windows 0.58 的 Media::Audio 未导出这两个常量名)
+                    let is_float = source_format.wFormatTag == 0x0003u16
+                        || (source_format.wFormatTag == 0xFFFEu16
                             && bits_per_sample == 32);
 
                     let mut resampler =
@@ -349,8 +351,10 @@ mod capture {
                     let source_channels = source_format.nChannels;
                     let bits_per_sample = source_format.wBitsPerSample;
                     let block_align = source_format.nBlockAlign;
-                    let is_float = source_format.wFormatTag == WAVE_FORMAT_IEEE_FLOAT as u16
-                        || (source_format.wFormatTag == WAVE_FORMAT_EXTENSIBLE as u16
+                    // WAVE_FORMAT_IEEE_FLOAT = 0x0003, WAVE_FORMAT_EXTENSIBLE = 0xFFFE
+                    // (固定值;windows 0.58 的 Media::Audio 未导出这两个常量名)
+                    let is_float = source_format.wFormatTag == 0x0003u16
+                        || (source_format.wFormatTag == 0xFFFEu16
                             && bits_per_sample == 32);
 
                     let mut resampler =

@@ -15,6 +15,9 @@ const BUFFER_WINDOW_SECS: u64 = 120;
 const PROMPT_WINDOW_SECS: u64 = 90;
 const QUERY_WINDOW_SECS: u64 = 30;
 const RAG_TOP_K: usize = 5;
+/// The reasoning model spends hidden chain-of-thought from the same budget;
+/// 1024 occasionally truncated the visible suggestion mid-sentence.
+const SUGGESTION_MAX_TOKENS: u32 = 2048;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum TriggerType {
@@ -138,7 +141,7 @@ impl SuggestionEngine {
     /// returns Ok without emitting anything (no-op).
     pub async fn generate(
         &self,
-        _trigger: TriggerType,
+        trigger: TriggerType,
         out: mpsc::Sender<String>,
     ) -> Result<()> {
         let recent = self.buffer.lock().await.recent_text(PROMPT_WINDOW_SECS);
@@ -187,7 +190,42 @@ impl SuggestionEngine {
 
         let messages = vec![Message::system(system), Message::user(user)];
         tracing::info!("suggestion generate: calling LLM stream, messages={}", messages.len());
-        self.llm.stream(messages, out).await
+
+        // Tee the stream: forward tokens to the UI while accumulating the full
+        // text, then persist it so meeting history can show past suggestions.
+        let (tx, mut rx) = mpsc::channel::<String>(64);
+        let out_for_fwd = out.clone();
+        let collector = tokio::spawn(async move {
+            let mut full = String::new();
+            while let Some(tok) = rx.recv().await {
+                full.push_str(&tok);
+                let _ = out_for_fwd.send(tok).await;
+            }
+            full
+        });
+        self.llm
+            .stream_max(messages, tx, SUGGESTION_MAX_TOKENS)
+            .await?;
+        let full = collector.await.unwrap_or_default();
+
+        if !full.trim().is_empty() {
+            let now_ms = std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as i64)
+                .unwrap_or(0);
+            let trigger_str = match trigger {
+                TriggerType::Auto => "auto",
+                TriggerType::Manual => "manual",
+            };
+            let conn = self.db.conn();
+            if let Err(e) = conn.execute(
+                "INSERT INTO suggestions (meeting_id, triggered_at, trigger_type, content) VALUES (?, ?, ?, ?)",
+                rusqlite::params![self.meeting_id, now_ms, trigger_str, full],
+            ) {
+                tracing::warn!("persist suggestion failed: {e}");
+            }
+        }
+        Ok(())
     }
 
     /// Spawn a background task that calls generate() every `interval` seconds.

@@ -1,4 +1,4 @@
-use crate::db::models::{Meeting, SuggestionRow, TranscriptRow};
+use crate::db::models::{Meeting, TranscriptRow};
 use crate::db::Db;
 use crate::error::{AppError, Result};
 use crate::llm::{LLMClient, Message};
@@ -6,6 +6,11 @@ use crate::minutes::prompt::{system_prompt, user_prompt, MinutesContext};
 use rusqlite::params;
 use std::sync::Arc;
 use tokio::sync::mpsc;
+
+/// Output budget for minutes generation. Covers the reasoning model's hidden
+/// chain-of-thought plus a long-form document (a merged multi-segment meeting
+/// can easily produce several thousand visible tokens).
+const MINUTES_MAX_TOKENS: u32 = 16384;
 
 pub struct MinutesGenerator {
     db: Arc<Db>,
@@ -24,8 +29,9 @@ impl MinutesGenerator {
         meeting_id: &str,
         out: mpsc::Sender<String>,
     ) -> Result<String> {
-        // Load meeting + transcripts + suggestions
-        let (meeting, transcripts, suggestions) = self.load_context(meeting_id)?;
+        // Load meeting + transcripts (suggestions deliberately excluded from
+        // minutes — they are in-meeting aids, persisted only for history view)
+        let (meeting, transcripts) = self.load_context(meeting_id)?;
 
         let template = crate::templates::get_by_id(
             meeting.template_id.as_deref().unwrap_or("default"),
@@ -34,17 +40,94 @@ impl MinutesGenerator {
         let ctx = MinutesContext {
             meeting: &meeting,
             transcripts: &transcripts,
-            suggestions: &suggestions,
         };
 
         let system = system_prompt();
         let user = user_prompt(&ctx, &template);
 
-        // Stream via LLM, accumulating to return at end
+        self.stream_and_persist(system, user, out, meeting_id).await
+    }
+
+    /// Generate a single merged minutes from several meeting records (e.g. a
+    /// meeting that was interrupted and restarted into separate records). The
+    /// segments are ordered chronologically by `started_at`, their transcripts
+    /// concatenated with monotonically increasing timestamps, and the result is
+    /// persisted under the earliest meeting's id.
+    pub async fn generate_merged(
+        &self,
+        meeting_ids: &[String],
+        out: mpsc::Sender<String>,
+    ) -> Result<String> {
+        if meeting_ids.is_empty() {
+            return Err(AppError::Asr("no meetings selected for merge".into()));
+        }
+        if meeting_ids.len() == 1 {
+            return self.generate(&meeting_ids[0], out).await;
+        }
+
+        // Load every segment, then order chronologically regardless of the
+        // order they were selected in the UI.
+        let mut loaded = Vec::with_capacity(meeting_ids.len());
+        for mid in meeting_ids {
+            loaded.push(self.load_context(mid)?);
+        }
+        loaded.sort_by_key(|(m, _)| m.started_at);
+
+        let base_meeting = loaded[0].0.clone();
+        let mut all_transcripts: Vec<TranscriptRow> = Vec::new();
+        let mut names: Vec<String> = Vec::new();
+        let mut time_offset: i64 = 0;
+        for (meeting, transcripts) in &loaded {
+            // Dedupe consecutive identical segment names for the title.
+            if names.last() != Some(&meeting.name) {
+                names.push(meeting.name.clone());
+            }
+            let seg_max = transcripts.iter().map(|t| t.end_ms).max().unwrap_or(0);
+            for t in transcripts {
+                let mut t2 = t.clone();
+                t2.start_ms += time_offset;
+                t2.end_ms += time_offset;
+                all_transcripts.push(t2);
+            }
+            time_offset += seg_max + 1;
+        }
+
+        // Synthesize a merged meeting so the prompt reflects the combined record.
+        let mut merged_meeting = base_meeting.clone();
+        merged_meeting.name = format!("{}(合并 {} 段记录)", names.join(" + "), loaded.len());
+
+        let template = crate::templates::get_by_id(
+            merged_meeting.template_id.as_deref().unwrap_or("default"),
+        );
+        let ctx = MinutesContext {
+            meeting: &merged_meeting,
+            transcripts: &all_transcripts,
+        };
+        let system = system_prompt();
+        let user = user_prompt(&ctx, &template);
+
+        // Persist under the earliest segment's id so it surfaces in that meeting.
+        self.stream_and_persist(system, user, out, &base_meeting.id)
+            .await
+    }
+
+    /// Shared LLM streaming + versioned persistence used by both single and
+    /// merged generation.
+    async fn stream_and_persist(
+        &self,
+        system: &str,
+        user: String,
+        out: mpsc::Sender<String>,
+        persist_meeting_id: &str,
+    ) -> Result<String> {
         let (tx, mut rx) = mpsc::channel::<String>(256);
         let llm = self.llm.clone();
         let messages = vec![Message::system(system), Message::user(user)];
-        let llm_task = tokio::spawn(async move { llm.stream(messages, tx).await });
+        // Minutes are long-form output and the reasoning model spends hidden
+        // chain-of-thought from the same budget — the default 1024 used to
+        // truncate minutes (especially merged ones) mid-document.
+        let llm_task =
+            tokio::spawn(async move { llm.stream_max(messages, tx, MINUTES_MAX_TOKENS).await });
 
         // Forward each token to both the public out channel + accumulate
         let mut markdown = String::new();
@@ -65,7 +148,7 @@ impl MinutesGenerator {
             .map_err(|e| AppError::Asr(format!("minutes llm failed: {e}")))?;
 
         // Write to minutes table (versioned)
-        self.persist(meeting_id, &markdown)?;
+        self.persist(persist_meeting_id, &markdown)?;
 
         Ok(markdown)
     }
@@ -73,7 +156,7 @@ impl MinutesGenerator {
     fn load_context(
         &self,
         meeting_id: &str,
-    ) -> Result<(Meeting, Vec<TranscriptRow>, Vec<SuggestionRow>)> {
+    ) -> Result<(Meeting, Vec<TranscriptRow>)> {
         let conn = self.db.conn();
 
         let meeting: Meeting = conn.query_row(
@@ -112,24 +195,7 @@ impl MinutesGenerator {
             })?
             .collect::<std::result::Result<_, _>>()?;
 
-        let mut stmt = conn.prepare(
-            "SELECT id, meeting_id, triggered_at, trigger_type, style, content, user_action FROM suggestions WHERE meeting_id = ? ORDER BY triggered_at"
-        )?;
-        let suggestions: Vec<SuggestionRow> = stmt
-            .query_map([meeting_id], |r| {
-                Ok(SuggestionRow {
-                    id: r.get(0)?,
-                    meeting_id: r.get(1)?,
-                    triggered_at: r.get(2)?,
-                    trigger_type: r.get(3)?,
-                    style: r.get(4)?,
-                    content: r.get(5)?,
-                    user_action: r.get(6)?,
-                })
-            })?
-            .collect::<std::result::Result<_, _>>()?;
-
-        Ok((meeting, transcripts, suggestions))
+        Ok((meeting, transcripts))
     }
 
     fn persist(&self, meeting_id: &str, markdown: &str) -> Result<()> {

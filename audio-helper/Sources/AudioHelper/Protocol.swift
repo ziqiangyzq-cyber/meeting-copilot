@@ -4,6 +4,8 @@ import Foundation
 struct Command: Codable {
     let cmd: String
     let voice_processing: Bool?  // optional, only meaningful for "start"
+    let mic_enabled: Bool?       // optional, only meaningful for "set_mic_enabled"
+    let lock_builtin_mic: Bool?  // optional, for "start" / "set_lock_builtin_mic"
 }
 
 // stdout: binary PCM frames

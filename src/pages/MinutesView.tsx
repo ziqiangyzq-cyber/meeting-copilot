@@ -5,6 +5,7 @@ import { save } from '@tauri-apps/plugin-dialog';
 import { writeTextFile } from '@tauri-apps/plugin-fs';
 import {
   generateMinutes,
+  generateMinutesMerged,
   onMinutesToken,
   onMinutesComplete,
   onMinutesError,
@@ -15,9 +16,12 @@ interface Props {
   meetingId: string;
   meetingName: string;
   onBack: () => void;
+  // When set (length ≥ 1), generate one merged minutes from these records
+  // instead of from `meetingId` alone.
+  mergeIds?: string[];
 }
 
-export function MinutesView({ meetingId, meetingName, onBack }: Props) {
+export function MinutesView({ meetingId, meetingName, onBack, mergeIds }: Props) {
   const [markdown, setMarkdown] = useState<string>('');
   const [status, setStatus] = useState<'streaming' | 'complete' | 'error'>('streaming');
   const [error, setError] = useState<string | null>(null);
@@ -66,17 +70,35 @@ export function MinutesView({ meetingId, meetingName, onBack }: Props) {
     };
   }, []);
 
-  // Trigger generation once
-  useEffect(() => {
-    if (dispatched.current) return;
-    dispatched.current = true;
-    generateMinutes(meetingId).catch((e) => {
+  const runGeneration = () => {
+    const task =
+      mergeIds && mergeIds.length > 0
+        ? generateMinutesMerged(mergeIds)
+        : generateMinutes(meetingId);
+    task.catch((e) => {
       // Error event also fires; this catch is belt-and-suspenders
-      console.error('generate_minutes failed', e);
+      console.error('generate minutes failed', e);
       setError(String(e));
       setStatus('error');
     });
+  };
+
+  // Trigger generation once on mount
+  useEffect(() => {
+    if (dispatched.current) return;
+    dispatched.current = true;
+    runGeneration();
   }, [meetingId]);
+
+  // Retry after a failed generation (e.g. transient LLM/network error) without
+  // having to leave this screen and dig the meeting out of history.
+  const handleRetry = () => {
+    accumRef.current = '';
+    setMarkdown('');
+    setError(null);
+    setStatus('streaming');
+    runGeneration();
+  };
 
   // Auto-scroll to bottom while streaming
   useEffect(() => {
@@ -170,8 +192,20 @@ export function MinutesView({ meetingId, meetingName, onBack }: Props) {
       </header>
 
       {error && (
-        <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm">
-          ⚠ 纪要生成失败: {error}
+        <div className="mx-6 mt-4 p-3 bg-red-50 border border-red-200 text-red-800 rounded text-sm flex items-center gap-3">
+          <span className="flex-1">⚠ 纪要生成失败: {error}</span>
+          <button
+            onClick={handleRetry}
+            className="shrink-0 px-3 py-1.5 bg-red-600 hover:bg-red-700 text-white text-sm font-bold rounded"
+          >
+            重新生成
+          </button>
+        </div>
+      )}
+
+      {status === 'complete' && mergeIds && mergeIds.length >= 2 && (
+        <div className="mx-6 mt-4 p-3 bg-blue-50 border border-blue-200 text-blue-800 rounded text-sm">
+          ℹ️ 合并纪要已保存到最早一段记录名下(作为它的最新版本),之后在历史列表里打开那一段即可找到。
         </div>
       )}
 

@@ -31,6 +31,9 @@ pub struct Config {
     pub llm_api_key: String,
     /// macOS built-in voice processing (echo cancel + noise suppress + AGC) on mic. Default ON.
     pub voice_processing_enabled: bool,
+    /// Pin mic capture to the built-in microphone instead of following the
+    /// system default input (so AirPods on/off never touches capture). Default OFF.
+    pub lock_builtin_mic: bool,
 }
 
 const KEY_ALIYUN: &str = "ALIYUN_API_KEY";
@@ -40,6 +43,7 @@ const KEY_LLM_BASE_URL: &str = "LLM_BASE_URL";
 const KEY_LLM_MODEL: &str = "LLM_MODEL";
 const KEY_LLM_API_KEY: &str = "LLM_API_KEY";
 const KEY_VOICE_PROCESSING: &str = "VOICE_PROCESSING_ENABLED";
+const KEY_LOCK_BUILTIN_MIC: &str = "LOCK_BUILTIN_MIC";
 
 fn sanitize(s: String) -> String {
     s.chars().filter(|c| !c.is_whitespace()).collect()
@@ -92,6 +96,10 @@ impl Config {
             .map(|v| v == "true" || v == "1")
             .unwrap_or(true); // default ON
 
+        let lock_builtin = load_raw(KEY_LOCK_BUILTIN_MIC)
+            .map(|v| v == "true" || v == "1")
+            .unwrap_or(false); // default OFF (follow system default input)
+
         match provider {
             LlmProvider::MiniMax => {
                 let Some(minimax_key) = load_one(KEY_MINIMAX) else {
@@ -105,6 +113,7 @@ impl Config {
                     llm_model: String::new(),
                     llm_api_key: String::new(),
                     voice_processing_enabled: voice_proc,
+                    lock_builtin_mic: lock_builtin,
                 }))
             }
             LlmProvider::OpenAICompat => {
@@ -125,6 +134,7 @@ impl Config {
                     llm_model: model,
                     llm_api_key: key,
                     voice_processing_enabled: voice_proc,
+                    lock_builtin_mic: lock_builtin,
                 }))
             }
         }
@@ -155,5 +165,9 @@ pub fn save_minimax_key(key: &str) -> Result<()> {
 
 pub fn save_voice_processing(enabled: bool) -> Result<()> {
     keychain::set(KEY_VOICE_PROCESSING, if enabled { "true" } else { "false" })
+}
+
+pub fn save_lock_builtin_mic(enabled: bool) -> Result<()> {
+    keychain::set(KEY_LOCK_BUILTIN_MIC, if enabled { "true" } else { "false" })
 }
 

@@ -5,8 +5,6 @@ use futures_util::StreamExt;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
-const DEFAULT_MAX_TOKENS: u32 = 1024;
-
 pub struct OpenAICompatClient {
     base_url: String,
     api_key: String,
@@ -47,8 +45,11 @@ impl OpenAICompatClient {
     pub fn new(base_url: String, api_key: String, model: String) -> Self {
         // Normalize base_url: strip trailing slash
         let base_url = base_url.trim_end_matches('/').to_string();
+        // Connect + per-read timeouts instead of a total-request timeout, which
+        // would cut long streaming generations (minutes) off mid-stream.
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .read_timeout(std::time::Duration::from_secs(90))
             .build()
             .expect("reqwest client build");
         Self {
@@ -66,12 +67,17 @@ impl OpenAICompatClient {
 
 #[async_trait]
 impl LLMClient for OpenAICompatClient {
-    async fn stream(&self, messages: Vec<Message>, out: mpsc::Sender<String>) -> Result<()> {
+    async fn stream_max(
+        &self,
+        messages: Vec<Message>,
+        out: mpsc::Sender<String>,
+        max_tokens: u32,
+    ) -> Result<()> {
         let body = ChatReq {
             model: &self.model,
             messages: &messages,
             stream: true,
-            max_tokens: DEFAULT_MAX_TOKENS,
+            max_tokens,
         };
 
         tracing::info!(
@@ -135,6 +141,12 @@ impl LLMClient for OpenAICompatClient {
                     match serde_json::from_str::<ChatChunk>(payload) {
                         Ok(chunk) => {
                             if let Some(choice) = chunk.choices.first() {
+                                // Surface silent truncation by max_tokens
+                                if choice.finish_reason.as_deref() == Some("length") {
+                                    tracing::warn!(
+                                        "LLM stream TRUNCATED by max_tokens={max_tokens} — output is incomplete"
+                                    );
+                                }
                                 if let Some(content) = &choice.delta.content {
                                     if !content.is_empty() {
                                         if out.send(content.clone()).await.is_err() {

@@ -2,10 +2,12 @@ import { useEffect, useState } from 'react';
 import {
   getApiKeyStatus,
   getLlmStatus,
+  getLockBuiltinMic,
   getVoiceProcessing,
   saveAliyunOnly,
   saveMinimaxOnly,
   saveOpenaiCompat,
+  setLockBuiltinMic,
   setVoiceProcessing,
   testAliyunKey,
   testMinimaxKey,
@@ -53,6 +55,8 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
 
   // Mic voice processing toggle
   const [voiceProcEnabled, setVoiceProcEnabled] = useState(true);
+  // Lock capture to built-in mic (ignore AirPods etc. taking over system default)
+  const [lockBuiltinEnabled, setLockBuiltinEnabled] = useState(false);
 
   useEffect(() => {
     getApiKeyStatus().then(setStatus).catch((e) => setError(String(e)));
@@ -65,6 +69,7 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
       })
       .catch((e) => setError(String(e)));
     getVoiceProcessing().then(setVoiceProcEnabled).catch((e) => console.error(e));
+    getLockBuiltinMic().then(setLockBuiltinEnabled).catch((e) => console.error(e));
   }, []);
 
   const handleToggleVoiceProc = async (next: boolean) => {
@@ -74,6 +79,16 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
     } catch (e) {
       console.error('setVoiceProcessing failed', e);
       setVoiceProcEnabled(!next); // revert
+    }
+  };
+
+  const handleToggleLockBuiltin = async (next: boolean) => {
+    setLockBuiltinEnabled(next);
+    try {
+      await setLockBuiltinMic(next);
+    } catch (e) {
+      console.error('setLockBuiltinMic failed', e);
+      setLockBuiltinEnabled(!next); // revert
     }
   };
 
@@ -535,6 +550,28 @@ export function Settings({ onBack, isFirstLaunch, onSaved }: Props) {
                 ⚠️ 如果你发现轻声议论 / 远场说话被压掉,关掉这个开关。
                 <br />
                 <strong>会议进行中也可以切换,立即生效</strong>(MeetingView 顶栏也有快捷开关)。
+              </div>
+            </div>
+          </label>
+          <label className="flex items-start gap-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={lockBuiltinEnabled}
+              onChange={(e) => handleToggleLockBuiltin(e.target.checked)}
+              className="mt-1"
+            />
+            <div className="text-sm">
+              <div className="font-medium">📌 锁定内置麦克风(不跟随系统默认输入)</div>
+              <div className="text-xs text-gray-500 mt-1">
+                AirPods 等蓝牙耳机连接时,macOS 会把输入也自动切到耳机麦(HFP 窄带,音质差),
+                且每次戴/摘耳机都会重启采集。开启后始终用 MacBook 内置麦克风阵列收音,
+                戴摘耳机只影响"听",完全不动采集链路。
+                <br />
+                ✅ 推荐场景:本机开会 + 高频戴摘 AirPods。
+                <br />
+                ⚠️ 关闭场景:用外接 USB 会议麦 / 领夹麦,或合盖外接显示器(内置麦被盖住)。
+                <br />
+                <strong>会议进行中切换立即生效</strong>。
               </div>
             </div>
           </label>

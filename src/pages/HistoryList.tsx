@@ -3,6 +3,7 @@ import { deleteMeeting, listMeetings, MeetingSummary } from '../lib/tauri-bridge
 
 interface Props {
   onSelect: (meetingId: string) => void;
+  onMerge: (meetingIds: string[]) => void;
   onBack: () => void;
 }
 
@@ -12,11 +13,39 @@ const TEMPLATE_BADGE: Record<string, string> = {
   field_discussion: '🏗️ 现场',
 };
 
-export function HistoryList({ onSelect, onBack }: Props) {
+export function HistoryList({ onSelect, onMerge, onBack }: Props) {
   const [meetings, setMeetings] = useState<MeetingSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
+  const toggleSelect = (id: string) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  };
+
+  // Merge in chronological order (oldest segment first) regardless of click order.
+  // Requires ≥2 segments — a single selection is just normal generation and
+  // should go through the meeting's own detail page instead.
+  const handleMerge = () => {
+    const ordered = meetings
+      .filter((m) => selected.has(m.id))
+      .sort((a, b) => a.started_at - b.started_at);
+    if (ordered.length < 2) return;
+    const target = ordered[0];
+    if (target.has_minutes) {
+      const ok = confirm(
+        `最早一段「${target.name}」已有纪要。\n\n合并生成的纪要会保存为它的最新版本(旧版本保留在数据库,但界面默认显示最新版)。\n\n继续?`,
+      );
+      if (!ok) return;
+    }
+    onMerge(ordered.map((m) => m.id));
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -85,6 +114,33 @@ export function HistoryList({ onSelect, onBack }: Props) {
         </button>
       </header>
 
+      {!loading && meetings.length > 0 && (
+        <p className="text-xs text-gray-500 mb-3">
+          勾选多段记录(例如会议中断后重开的几段)可合并生成一份纪要。
+        </p>
+      )}
+
+      {selected.size > 0 && (
+        <div className="sticky top-0 z-10 mb-3 flex items-center gap-3 px-4 py-2 bg-blue-600 text-white rounded shadow">
+          <span className="text-sm font-medium">已选 {selected.size} 段</span>
+          <div className="flex-1" />
+          <button
+            onClick={() => setSelected(new Set())}
+            className="px-3 py-1.5 bg-blue-500 hover:bg-blue-400 text-white text-sm rounded"
+          >
+            清除
+          </button>
+          <button
+            onClick={handleMerge}
+            disabled={selected.size < 2}
+            className="px-4 py-1.5 bg-white text-blue-700 hover:bg-blue-50 text-sm font-bold rounded disabled:opacity-60 disabled:cursor-not-allowed"
+            title={selected.size < 2 ? '至少勾选 2 段才能合并;单段纪要请直接点开那条记录' : undefined}
+          >
+            {selected.size >= 2 ? `合并生成纪要 (${selected.size})` : '再勾 1 段以合并'}
+          </button>
+        </div>
+      )}
+
       {loading && <div className="text-gray-400">加载中...</div>}
 
       {error && (
@@ -101,6 +157,13 @@ export function HistoryList({ onSelect, onBack }: Props) {
         <ul className="space-y-2">
           {meetings.map((m) => (
             <li key={m.id} className="flex items-center gap-2">
+              <input
+                type="checkbox"
+                checked={selected.has(m.id)}
+                onChange={() => toggleSelect(m.id)}
+                className="shrink-0 w-4 h-4 accent-blue-600 cursor-pointer"
+                title="勾选以合并生成纪要"
+              />
               <button
                 onClick={() => onSelect(m.id)}
                 className="flex-1 text-left px-4 py-3 bg-white border border-gray-200 rounded hover:bg-blue-50 hover:border-blue-400 transition"

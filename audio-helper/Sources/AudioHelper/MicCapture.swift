@@ -9,6 +9,13 @@ class MicCapture {
     private var restartScheduled = false
     private var coreAudioListenerInstalled = false
     private var voiceProcessingEnabled: Bool = true  // default ON, overridable
+    private var configChangeObserver: NSObjectProtocol?
+    private var lockBuiltinMic = false  // pin capture to built-in mic; default follow system
+    // Retry-with-backoff for failed (re)starts — Bluetooth transitions routinely
+    // leave the device unready for a second or two; one-shot restarts used to
+    // leave the mic dead until external recovery kicked in.
+    private var failRetryAttempts = 0
+    private let maxFailRetries = 3
 
     /// Serial queue for all mic operations. We can't use DispatchQueue.main because
     /// main.swift blocks the main thread on a semaphore (keeps the process alive
@@ -25,20 +32,47 @@ class MicCapture {
         self.voiceProcessingEnabled = enabled
     }
 
-    func start() throws {
-        try buildEngineAndStart()
-        installCoreAudioListener()
+    /// Pin capture to the built-in microphone instead of following the system
+    /// default input. AirPods on/off then never touches the capture path.
+    func setLockBuiltinMic(_ enabled: Bool) {
+        self.lockBuiltinMic = enabled
+    }
+
+    /// Start capture. Never throws: if the device isn't ready (e.g. meeting
+    /// started mid-Bluetooth-handshake), retries are scheduled instead of the
+    /// mic staying dead for the whole meeting.
+    func start() {
         isRunning = true
+        installCoreAudioListener()
+        do {
+            try buildEngineAndStart()
+        } catch {
+            logError("mic initial start failed: \(error) — scheduling retries")
+            manualRestart()
+        }
     }
 
     private func buildEngineAndStart() throws {
-        // 1. Set the input device EXPLICITLY to the current default
-        if let deviceID = currentDefaultInputDeviceID() {
+        // 1. Set the input device EXPLICITLY: built-in mic when locked
+        //    (falling back to default if it can't be resolved), else the
+        //    current system default.
+        let chosenID: AudioDeviceID?
+        if lockBuiltinMic {
+            if let builtin = builtinInputDeviceID() {
+                chosenID = builtin
+            } else {
+                logError("locked to built-in mic but none found — falling back to system default")
+                chosenID = currentDefaultInputDeviceID()
+            }
+        } else {
+            chosenID = currentDefaultInputDeviceID()
+        }
+        if let deviceID = chosenID {
             let name = deviceName(for: deviceID) ?? "unknown"
-            logInfo("setting mic to device: \(name) (id=\(deviceID))")
+            logInfo("setting mic to device: \(name) (id=\(deviceID))\(lockBuiltinMic ? " [locked to built-in]" : "")")
             setInputDevice(on: engine, deviceID: deviceID)
         } else {
-            logError("could not get default input device id, falling back to engine default")
+            logError("could not get input device id, falling back to engine default")
         }
 
         // 2. Enable voice processing (echo cancel + noise suppress + AGC) on inputNode
@@ -74,6 +108,25 @@ class MicCapture {
             writeFrame(source: .mic, pcm: pcmData, to: FileHandle.standardOutput)
         }
         try engine.start()
+
+        // 4. Watch for in-place engine config changes (e.g. AirPods switching
+        // A2DP↔HFP profile: same device ID — the CoreAudio default-device
+        // listeners never fire — but the engine's format changes and capture
+        // can silently stall). Observer is per-engine-instance, so re-register
+        // on every rebuild and drop the previous one.
+        if let obs = configChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+        }
+        configChangeObserver = NotificationCenter.default.addObserver(
+            forName: .AVAudioEngineConfigurationChange,
+            object: engine,
+            queue: nil
+        ) { [weak self] _ in
+            guard let self = self else { return }
+            logInfo("mic engine configuration changed — scheduling restart")
+            self.micQueue.async { self.scheduleRestart() }
+        }
+
         logInfo("mic capture started, input format: \(inputFormat)")
     }
 
@@ -91,8 +144,15 @@ class MicCapture {
         let inStatus = AudioObjectAddPropertyListenerBlock(
             AudioObjectID(kAudioObjectSystemObject), &inputAddr, micQueue
         ) { [weak self] _, _ in
+            guard let self = self else { return }
+            if self.lockBuiltinMic {
+                // Locked: AirPods etc. taking over the system default input is
+                // exactly the event we want to NOT react to.
+                logInfo("core audio: default input changed — ignored (locked to built-in mic)")
+                return
+            }
             logInfo("core audio: default input device changed")
-            self?.scheduleRestart()
+            self.scheduleRestart()
         }
 
         // ... and default OUTPUT device, because plugging in / removing headphones
@@ -143,8 +203,47 @@ class MicCapture {
 
         do {
             try buildEngineAndStart()
+            failRetryAttempts = 0
         } catch {
-            logError("mic restart after device change failed: \(error)")
+            failRetryAttempts += 1
+            guard failRetryAttempts <= maxFailRetries else {
+                logError("mic restart failed after \(maxFailRetries) retries: \(error) — giving up (external recovery may still retrigger)")
+                failRetryAttempts = 0
+                return
+            }
+            let delay = Double(failRetryAttempts) // 1s, 2s, 3s
+            logError("mic restart failed: \(error) — retrying in \(delay)s (#\(failRetryAttempts))")
+            micQueue.asyncAfter(deadline: .now() + delay) { [weak self] in
+                self?.performRestart()
+            }
+        }
+    }
+
+    /// User-facing mic on/off toggle. OFF fully stops the engine (macOS orange mic
+    /// indicator goes away); system audio capture is a separate process path and
+    /// is not affected. While off, device-change restarts no-op (isRunning guard).
+    func setEnabled(_ enabled: Bool) {
+        micQueue.async { [weak self] in
+            guard let self = self else { return }
+            if enabled {
+                guard !self.isRunning else { return }
+                self.isRunning = true
+                self.engine = AVAudioEngine()
+                do {
+                    try self.buildEngineAndStart()
+                    logInfo("mic capture enabled by user toggle")
+                } catch {
+                    logError("mic enable failed: \(error) — scheduling retries")
+                    self.scheduleRestart()
+                }
+            } else {
+                guard self.isRunning else { return }
+                self.engine.inputNode.removeTap(onBus: 0)
+                self.engine.stop()
+                self.engine.reset()
+                self.isRunning = false
+                logInfo("mic capture disabled by user toggle")
+            }
         }
     }
 
@@ -207,6 +306,44 @@ class MicCapture {
             return deviceID
         }
         return nil
+    }
+
+    /// Find the built-in microphone: enumerate all audio devices, pick the one
+    /// with built-in transport AND input streams (the built-in speakers are a
+    /// separate built-in device with no inputs).
+    private func builtinInputDeviceID() -> AudioDeviceID? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioHardwarePropertyDevices,
+            mScope: kAudioObjectPropertyScopeGlobal,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        guard AudioObjectGetPropertyDataSize(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size
+        ) == noErr else { return nil }
+        let count = Int(size) / MemoryLayout<AudioDeviceID>.size
+        guard count > 0 else { return nil }
+        var devices = [AudioDeviceID](repeating: kAudioObjectUnknown, count: count)
+        guard AudioObjectGetPropertyData(
+            AudioObjectID(kAudioObjectSystemObject), &address, 0, nil, &size, &devices
+        ) == noErr else { return nil }
+        for dev in devices {
+            guard transportType(for: dev) == kAudioDeviceTransportTypeBuiltIn else { continue }
+            guard hasInputStreams(dev) else { continue }
+            return dev
+        }
+        return nil
+    }
+
+    private func hasInputStreams(_ deviceID: AudioDeviceID) -> Bool {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyStreams,
+            mScope: kAudioObjectPropertyScopeInput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var size: UInt32 = 0
+        let status = AudioObjectGetPropertyDataSize(deviceID, &address, 0, nil, &size)
+        return status == noErr && size > 0
     }
 
     private func transportType(for deviceID: AudioDeviceID) -> UInt32? {

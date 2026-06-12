@@ -15,9 +15,6 @@ const URL_INTL: &str = "https://api.minimax.io/v1/text/chatcompletion_v2";
 // stock M2 while keeping reasoning quality. Emits `reasoning_content` first
 // then `content` — we only forward `delta.content`, reasoning is filtered.
 const DEFAULT_MODEL: &str = "MiniMax-M2.7-highspeed";
-// Reasoning model needs headroom for the hidden chain-of-thought plus the
-// visible answer. 1024 leaves enough budget for a short Chinese answer.
-const DEFAULT_MAX_TOKENS: u32 = 1024;
 
 pub struct MiniMaxClient {
     api_key: String,
@@ -60,8 +57,13 @@ impl MiniMaxClient {
     pub fn new(api_key: String) -> Self {
         let url =
             std::env::var("MINIMAX_BASE_URL").unwrap_or_else(|_| URL_DOMESTIC.to_string());
+        // No total-request timeout: minutes generation streams for minutes at a
+        // time and reqwest's .timeout() covers the ENTIRE body read, which used
+        // to cut long generations off mid-stream. Guard with a connect timeout
+        // plus a per-read inactivity timeout instead.
         let client = reqwest::Client::builder()
-            .timeout(std::time::Duration::from_secs(60))
+            .connect_timeout(std::time::Duration::from_secs(15))
+            .read_timeout(std::time::Duration::from_secs(90))
             .build()
             .expect("reqwest client build");
         Self {
@@ -86,12 +88,17 @@ impl MiniMaxClient {
 
 #[async_trait]
 impl LLMClient for MiniMaxClient {
-    async fn stream(&self, messages: Vec<Message>, out: mpsc::Sender<String>) -> Result<()> {
+    async fn stream_max(
+        &self,
+        messages: Vec<Message>,
+        out: mpsc::Sender<String>,
+        max_tokens: u32,
+    ) -> Result<()> {
         let body = ChatReq {
             model: &self.model,
             messages: &messages,
             stream: true,
-            max_tokens: DEFAULT_MAX_TOKENS,
+            max_tokens,
         };
 
         tracing::info!(
@@ -162,6 +169,13 @@ impl LLMClient for MiniMaxClient {
                     match serde_json::from_str::<ChatChunk>(payload) {
                         Ok(chunk) => {
                             if let Some(choice) = chunk.choices.first() {
+                                // Surface silent truncation: "length" means the
+                                // output hit max_tokens and was cut mid-answer.
+                                if choice.finish_reason.as_deref() == Some("length") {
+                                    tracing::warn!(
+                                        "minimax stream TRUNCATED by max_tokens={max_tokens} — output is incomplete"
+                                    );
+                                }
                                 if let Some(content) = &choice.delta.content {
                                     if !content.is_empty() {
                                         if out.send(content.clone()).await.is_err() {
