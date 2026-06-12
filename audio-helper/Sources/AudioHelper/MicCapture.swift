@@ -11,6 +11,15 @@ class MicCapture {
     private var voiceProcessingEnabled: Bool = true  // default ON, overridable
     private var configChangeObserver: NSObjectProtocol?
     private var lockBuiltinMic = false  // pin capture to built-in mic; default follow system
+    /// Circuit breaker for config-change-triggered restarts: VPIO engines post
+    /// AVAudioEngineConfigurationChange during their own reconfiguration, which
+    /// once caused an infinite rebuild storm (14 restarts in 12s, observed).
+    private var configRestartTimes: [Date] = []
+    /// Zero-output watchdog: some device combos (e.g. wired headset mic on the
+    /// built-in jack) make VPIO emit pure digital silence. Detect and fall back.
+    private var zeroBufferStreak = 0
+    private var vpioEngaged = false        // whether the CURRENT build runs VPIO
+    private var vpioFallbackActive = false // VPIO produced sustained zeros — skip it
     // Retry-with-backoff for failed (re)starts — Bluetooth transitions routinely
     // leave the device unready for a second or two; one-shot restarts used to
     // leave the mic dead until external recovery kicked in.
@@ -30,6 +39,9 @@ class MicCapture {
     /// Call before start() or apply on next restart.
     func setVoiceProcessingEnabled(_ enabled: Bool) {
         self.voiceProcessingEnabled = enabled
+        // Explicit user action resets the zero-output fallback so VPIO gets a
+        // fresh chance (e.g. after switching to a healthy device).
+        self.vpioFallbackActive = false
     }
 
     /// Pin capture to the built-in microphone instead of following the system
@@ -85,19 +97,25 @@ class MicCapture {
         //    mic capture frequently breaks. So off-speaker we skip VPIO regardless of
         //    the user toggle. The manual toggle can only turn it OFF, never force it on
         //    where it would break the mic.
-        let useVoiceProcessing = voiceProcessingEnabled && outputIsBuiltInSpeaker()
+        let useVoiceProcessing =
+            voiceProcessingEnabled && !vpioFallbackActive && outputIsBuiltInSpeaker()
+        vpioEngaged = false
         if useVoiceProcessing {
             do {
                 try engine.inputNode.setVoiceProcessingEnabled(true)
+                vpioEngaged = true
                 logInfo("mic voice processing enabled (echo cancel + noise suppress + AGC)")
             } catch {
                 logError("setVoiceProcessingEnabled failed: \(error) — continuing without voice processing")
             }
+        } else if voiceProcessingEnabled && vpioFallbackActive {
+            logInfo("mic voice processing SKIPPED — zero-output fallback active for this session")
         } else if voiceProcessingEnabled {
-            logInfo("mic voice processing requested but SKIPPED — output is not built-in speakers (headphones/Bluetooth detected; no echo to cancel, and VPIO would break Bluetooth mic)")
+            logInfo("mic voice processing requested but SKIPPED — output is not the internal speaker (headphones/Bluetooth detected; no echo to cancel, and VPIO can break external mics)")
         } else {
             logInfo("mic voice processing DISABLED by user setting")
         }
+        zeroBufferStreak = 0
 
         // 3. Install tap + start
         let input = engine.inputNode
@@ -105,6 +123,7 @@ class MicCapture {
         input.installTap(onBus: 0, bufferSize: 1024, format: inputFormat) { [weak self] buffer, _ in
             guard let self = self else { return }
             guard let pcmData = self.converter.convert(buffer) else { return }
+            self.trackZeroOutput(pcmData)
             writeFrame(source: .mic, pcm: pcmData, to: FileHandle.standardOutput)
         }
         try engine.start()
@@ -114,20 +133,68 @@ class MicCapture {
         // listeners never fire — but the engine's format changes and capture
         // can silently stall). Observer is per-engine-instance, so re-register
         // on every rebuild and drop the previous one.
-        if let obs = configChangeObserver {
-            NotificationCenter.default.removeObserver(obs)
-        }
+        removeConfigObserver()
         configChangeObserver = NotificationCenter.default.addObserver(
             forName: .AVAudioEngineConfigurationChange,
             object: engine,
             queue: nil
         ) { [weak self] _ in
             guard let self = self else { return }
-            logInfo("mic engine configuration changed — scheduling restart")
-            self.micQueue.async { self.scheduleRestart() }
+            self.micQueue.async {
+                guard self.isRunning else { return }
+                // VPIO posts this notification during its OWN reconfiguration
+                // while the engine keeps running — restarting then creates an
+                // infinite rebuild storm (observed: 14 restarts in 12s). Per
+                // Apple docs the engine STOPS on a real external config change,
+                // so only react when it actually stopped.
+                if self.engine.isRunning {
+                    logInfo("mic engine config change while engine still running — ignored")
+                    return
+                }
+                let now = Date()
+                self.configRestartTimes = self.configRestartTimes.filter {
+                    now.timeIntervalSince($0) < 30
+                }
+                guard self.configRestartTimes.count < 3 else {
+                    logError("mic config-change restarts hit circuit breaker (3 in 30s) — ignoring further config changes")
+                    return
+                }
+                self.configRestartTimes.append(now)
+                logInfo("mic engine configuration changed (engine stopped) — scheduling restart")
+                self.scheduleRestart()
+            }
         }
 
         logInfo("mic capture started, input format: \(inputFormat)")
+    }
+
+    private func removeConfigObserver() {
+        if let obs = configChangeObserver {
+            NotificationCenter.default.removeObserver(obs)
+            configChangeObserver = nil
+        }
+    }
+
+    /// Zero-output watchdog (counter mutated on the tap's render thread; the
+    /// race with micQueue resets is benign — worst case detection is delayed by
+    /// a few buffers). ~47 buffers/s at 48 kHz / 1024 frames → 235 ≈ 5 s.
+    private func trackZeroOutput(_ pcm: Data) {
+        if pcm.contains(where: { $0 != 0 }) {
+            zeroBufferStreak = 0
+            return
+        }
+        zeroBufferStreak += 1
+        guard zeroBufferStreak == 235 else { return }
+        if vpioEngaged && !vpioFallbackActive {
+            logError("mic produced ~5s of pure digital silence with voice processing ON — disabling VPIO for this session and restarting")
+            micQueue.async { [weak self] in
+                guard let self = self else { return }
+                self.vpioFallbackActive = true
+                self.performRestart()
+            }
+        } else {
+            logError("mic producing sustained digital silence (voice processing off — hardware muted or dead input device?)")
+        }
     }
 
     private func installCoreAudioListener() {
@@ -193,6 +260,11 @@ class MicCapture {
         guard isRunning else { return }
         logInfo("restarting mic capture on new default device")
 
+        // Drop the observer BEFORE teardown — stopping the old engine can post
+        // a config-change notification that would otherwise schedule yet
+        // another restart (self-sustaining loop).
+        removeConfigObserver()
+
         // Tear down old engine completely
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
@@ -238,6 +310,7 @@ class MicCapture {
                 }
             } else {
                 guard self.isRunning else { return }
+                self.removeConfigObserver()
                 self.engine.inputNode.removeTap(onBus: 0)
                 self.engine.stop()
                 self.engine.reset()
@@ -261,6 +334,7 @@ class MicCapture {
         // anyway and removing a Block listener requires the original Block ref.
         micQueue.sync {
             if isRunning {
+                removeConfigObserver()
                 engine.inputNode.removeTap(onBus: 0)
                 engine.stop()
                 engine.reset()
@@ -374,10 +448,43 @@ class MicCapture {
             logInfo("could not read output transport type; skipping voice processing to be safe")
             return false
         }
-        let isBuiltIn = (transport == kAudioDeviceTransportTypeBuiltIn)
         let name = deviceName(for: outID) ?? "unknown"
-        logInfo("default output: \(name) transport=\(transport) builtInSpeaker=\(isBuiltIn)")
-        return isBuiltIn
+        guard transport == kAudioDeviceTransportTypeBuiltIn else {
+            logInfo("default output: \(name) transport=\(transport) — not built-in, skipping voice processing")
+            return false
+        }
+        // Built-in transport covers BOTH the internal speakers AND the headphone
+        // jack — a wired headset reports 'bltn' too, and engaging VPIO there
+        // breaks external headset mics (observed: pure digital silence). Use the
+        // device's data source to tell them apart: 'ispk' = internal speaker,
+        // 'hdpn' = headphones.
+        guard let dataSource = outputDataSource(for: outID) else {
+            logInfo("default output: \(name) built-in but data source unreadable — skipping voice processing to be safe")
+            return false
+        }
+        let isSpeaker = dataSource == 0x6973_706B // 'ispk'
+        logInfo("default output: \(name) transport=builtIn dataSource=\(fourCC(dataSource)) internalSpeaker=\(isSpeaker)")
+        return isSpeaker
+    }
+
+    private func outputDataSource(for deviceID: AudioDeviceID) -> UInt32? {
+        var address = AudioObjectPropertyAddress(
+            mSelector: kAudioDevicePropertyDataSource,
+            mScope: kAudioObjectPropertyScopeOutput,
+            mElement: kAudioObjectPropertyElementMain
+        )
+        var source: UInt32 = 0
+        var size: UInt32 = UInt32(MemoryLayout<UInt32>.size)
+        let status = AudioObjectGetPropertyData(deviceID, &address, 0, nil, &size, &source)
+        return status == noErr ? source : nil
+    }
+
+    private func fourCC(_ value: UInt32) -> String {
+        let bytes = [
+            UInt8((value >> 24) & 0xFF), UInt8((value >> 16) & 0xFF),
+            UInt8((value >> 8) & 0xFF), UInt8(value & 0xFF),
+        ]
+        return String(bytes: bytes, encoding: .ascii) ?? String(format: "0x%08X", value)
     }
 
     private func deviceName(for deviceID: AudioDeviceID) -> String? {
